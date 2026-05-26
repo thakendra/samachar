@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "247693755912",
+    "project_id": "samachar-ai-224bf",
+    "storage_bucket": "samachar-ai-224bf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:247693755912:android:4c6be6287671fee70d73bd",
+        "android_client_info": {
+          "package_name": "samachar.ai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDVVBMgk5taoNEO3IMeLp7dn-MBSno46xw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

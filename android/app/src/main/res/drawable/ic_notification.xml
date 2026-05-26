@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samachar "S•" monogram — white on transparent, 24 × 24 dp.
+     Used as the small icon for push notifications (must be alpha-only on Android 5+). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+
+    <!-- "S" letterform -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="
+            M7,7 L17,7 L17,9 L9,9 L9,11.5 L15,11.5
+            C16.1,11.5 17,12.4 17,13.5 L17,17
+            L7,17 L7,15 L15,15 L15,12.5 L9,12.5
+            C7.9,12.5 7,11.6 7,10.5 Z"/>
+
+    <!-- Red accent dot -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18.5,18 m-1.5,0 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0"/>
+</vector>
