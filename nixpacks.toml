@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["python312", "libxml2", "libxslt", "libffi"]
+
+[phases.install]
+cmds = [
+  "pip install -r backend/requirements.txt",
+  "python -c \"import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True); nltk.download('stopwords', quiet=True)\""
+]
+
+[start]
+cmd = "gunicorn --chdir backend --worker-class gthread --threads 4 --workers 1 --bind 0.0.0.0:$PORT --timeout 120 server:app"
