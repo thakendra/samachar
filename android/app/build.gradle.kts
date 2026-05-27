@@ -16,10 +16,6 @@ android {
         versionCode = 1
         versionName = "1.0"
         vectorDrawables { useSupportLibrary = true }
-        // Gemini API key + Firebase Web API key. Read from local.properties when present.
-        val gemini = project.findProperty("GEMINI_API_KEY") as String?
-            ?: "AIzaSyBcqNqnwS8-lRg203CWMd71diAyUL2_bbU"
-        buildConfigField("String", "GEMINI_API_KEY", "\"$gemini\"")
     }
 
     buildTypes {
@@ -84,9 +80,6 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-storage")
     implementation("com.google.firebase:firebase-messaging")
-
-    // Gemini AI SDK (Google AI client)
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
     // Image loading (for Firebase Storage images)
     implementation("io.coil-kt:coil-compose:2.7.0")

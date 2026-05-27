@@ -50,9 +50,11 @@ fun HomeScreen(vm: AppViewModel, nav: NavController) {
         loading = true; articles = null
         try {
             articles = vm.articles.list(tag = tab)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e  // tab switched — not an error, just re-throw
         } catch (e: Exception) {
             articles = emptyList()
-            vm.toast("Could not load feed: ${e.message?.take(40)}")
+            vm.toast("Could not load feed — check connection")
         }
         loading = false
     }

@@ -1,54 +1,33 @@
 package samachar.ai.data.repository
 
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.generationConfig
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.tasks.await
-import samachar.ai.BuildConfig
 import samachar.ai.data.model.AiLogEntry
 
 /**
- * Wraps Google's Gemini Pro generative model.
- * Falls back to a rule table if the API errors (rate limit, offline, etc).
+ * Wraps the Samachar AI Flask backend (/api/ai/ask).
+ * Falls back to a local rule table if the network call fails.
  */
 class AiRepository {
     private val db = Firebase.firestore
-
-    private val model = GenerativeModel(
-        modelName = "gemini-2.0-flash-lite",
-        apiKey = BuildConfig.GEMINI_API_KEY,
-        generationConfig = generationConfig {
-            temperature = 0.4f
-            maxOutputTokens = 600
-        },
-    )
+    private val api = FlaskApiClient.service
 
     /**
-     * Ask Gemini. Returns (answer, sources).
-     * Sources are synthesised from the prompt context — Gemini doesn't return them natively.
+     * Ask the AI. Returns (answer, sources).
      */
     suspend fun ask(question: String, language: String): Pair<String, List<String>> {
-        val systemPrompt = buildString {
-            append("You are a Nepal news analyst for the samachar.ai app. ")
-            append("Answer the user's question in 3-5 sentences, grounded in current Nepal facts ")
-            append("(politics, economy, NEPSE, hyperlocal Kathmandu/Lalitpur events, sport, climate). ")
-            append("If unsure, say so — never invent specifics. ")
-            if (language == "np") append("Respond in Nepali (Devanagari script). ")
-            append("End your answer with a line: SOURCES: comma-separated list of 2-3 plausible ")
-            append("Nepali publication names (Kathmandu Post, OnlineKhabar, Bizmandu, Setopati, Nagarik, Ratopati).")
-        }
         return try {
-            val response = model.generateContent("$systemPrompt\n\nQuestion: $question").text
-                ?: return fallback(question) to emptyList()
-            val parts = response.split("SOURCES:", "Sources:", "sources:")
-            val answer = parts[0].trim()
-            val sources = if (parts.size > 1)
-                parts[1].split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            else emptyList()
-            answer to sources
+            val resp = api.askAi(AiAskRequest(question = question, lang = language))
+            if (resp.quotaExceeded) {
+                "Your daily AI quota has been reached. Upgrade to Samachar Pro for unlimited queries." to emptyList()
+            } else {
+                resp.answer.trim() to resp.sources
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             fallback(question) to listOf("samachar.ai cache")
         }

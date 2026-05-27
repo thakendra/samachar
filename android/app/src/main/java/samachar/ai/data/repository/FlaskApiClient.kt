@@ -124,8 +124,10 @@ object FlaskApiClient {
 
     private val okHttp = OkHttpClient.Builder()
         .cookieJar(InMemoryCookieJar())
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)   // Fly.io cold-start can take 30-40 s
+        .readTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(90, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         })
