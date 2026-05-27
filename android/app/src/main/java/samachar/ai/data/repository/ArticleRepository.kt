@@ -1,44 +1,49 @@
 package samachar.ai.data.repository
 
-import com.google.firebase.Firebase
-import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.firestore
-import kotlinx.coroutines.tasks.await
 import samachar.ai.data.model.Article
 
 class ArticleRepository {
-    private val db = Firebase.firestore
-    private val col get() = db.collection("articles")
+    private val api = FlaskApiClient.service
 
-    suspend fun list(tag: String? = null, limit: Long = 50): List<Article> {
-        var q: Query = col.orderBy("published_at", Query.Direction.DESCENDING).limit(limit)
-        if (!tag.isNullOrBlank() && tag != "foryou") q = q.whereEqualTo("tag", tag)
-        val snap = q.get().await()
-        return snap.toObjects(Article::class.java)
-    }
+    suspend fun list(tag: String? = null, limit: Long = 60): List<Article> =
+        api.articles(tag = if (tag == "foryou") null else tag, limit = limit.toInt())
+            .map { it.toArticle() }
 
-    suspend fun search(query: String, limit: Long = 50): List<Article> {
-        // Firestore has no native full-text, so we pull recent + filter client-side.
-        val recent = col.orderBy("published_at", Query.Direction.DESCENDING)
-            .limit(200).get().await().toObjects(Article::class.java)
-        val needle = query.trim().lowercase()
-        if (needle.isEmpty()) return recent.take(limit.toInt())
-        return recent.filter {
-            it.title.lowercase().contains(needle) ||
-            it.dek.lowercase().contains(needle) ||
-            it.category.lowercase().contains(needle) ||
-            it.body.any { p -> p.lowercase().contains(needle) } ||
-            it.keyPoints.any { p -> p.lowercase().contains(needle) }
-        }.take(limit.toInt())
-    }
+    suspend fun search(query: String, limit: Long = 60): List<Article> =
+        api.articles(q = query.trim().takeIf { it.isNotEmpty() }, limit = limit.toInt())
+            .map { it.toArticle() }
 
-    suspend fun get(id: String): Article? {
-        val snap = col.document(id).get().await()
-        return snap.toObject(Article::class.java)
-    }
+    suspend fun get(id: String): Article? =
+        runCatching { api.article(id).toArticle() }.getOrNull()
 
-    suspend fun related(article: Article, limit: Long = 3): List<Article> {
-        val snap = col.whereEqualTo("tag", article.tag).limit(limit + 1).get().await()
-        return snap.toObjects(Article::class.java).filter { it.id != article.id }.take(limit.toInt())
-    }
+    suspend fun related(article: Article, limit: Long = 3): List<Article> =
+        runCatching {
+            api.articles(tag = article.tag, limit = 10)
+                .filter { it.id != article.id }
+                .take(limit.toInt())
+                .map { it.toArticle() }
+        }.getOrDefault(emptyList())
 }
+
+// ── Mapper: FlaskArticle → Article ───────────────────────────────────────────
+
+fun FlaskArticle.toArticle() = Article(
+    id           = id,
+    category     = category,
+    tag          = tag,
+    source       = source,
+    title        = title,
+    dek          = dek,
+    imgUrl       = imgUrl,
+    imgLabel     = sourceColor,
+    bias         = bias,
+    biasLabel    = biasLabel,
+    body         = body,
+    keyPoints    = keyPoints,
+    whyMatters   = whyMatters,
+    publishedAt  = publishedAt,
+    timeLabel    = timeLabel,
+    commentsCount= commentsCount,
+    likes        = likes,
+    developing   = developing,
+)

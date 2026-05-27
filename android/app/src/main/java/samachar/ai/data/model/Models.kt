@@ -12,6 +12,7 @@ data class Article(
     @get:PropertyName("title_np") @set:PropertyName("title_np") var titleNp: String? = null,
     var dek: String = "",
     var icon: String? = null,
+    @get:PropertyName("img_url") @set:PropertyName("img_url") var imgUrl: String? = null,
     @get:PropertyName("img_label") @set:PropertyName("img_label") var imgLabel: String? = null,
     var bias: Int? = null,
     @get:PropertyName("bias_label") @set:PropertyName("bias_label") var biasLabel: String? = null,
