@@ -120,7 +120,7 @@ class InMemoryCookieJar : CookieJar {
 // ── Singleton client ──────────────────────────────────────────────────────────
 
 object FlaskApiClient {
-    const val BASE_URL = "https://samachar-wg5rea.fly.dev/"
+    const val BASE_URL = "http://72.60.203.57/"
 
     private val okHttp = OkHttpClient.Builder()
         .cookieJar(InMemoryCookieJar())
