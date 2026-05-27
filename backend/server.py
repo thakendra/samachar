@@ -538,55 +538,62 @@ def vote_comment(cid):
 # ── AI ────────────────────────────────────────────────────────
 
 @app.post('/api/ai/ask')
-@require_auth
 def ai_ask():
     data     = request.get_json(silent=True) or {}
     question = (data.get('question') or '').strip()
     if not question or len(question) > 600:
         return jerr('question required (under 600 chars)')
+
     conn = get_db()
     try:
-        reset_quota_if_needed(conn, session['user_id'])
-        user = conn.execute(
-            'SELECT plan, ai_quota, language FROM users WHERE id = ?',
-            (session['user_id'],)
-        ).fetchone()
-        if user['plan'] != 'pro' and user['ai_quota'] <= 0:
-            return jsonify({'quota_exceeded': True,
-                            'message': 'Daily quota used. Upgrade to Pro for unlimited.'}), 429
-
-        # Pull recent articles for context
+        # Pull recent articles for context (always available)
         recent = conn.execute("""
             SELECT title, source, dek FROM articles
             ORDER BY published_at DESC LIMIT 15
         """).fetchall()
         context_articles = [row_to_dict(r) for r in recent]
 
-        result = ai_module.answer_question(
-            question,
-            lang=user['language'],
-            context_articles=context_articles,
-        )
+        # Authenticated web users: enforce quota, use their language pref
+        if 'user_id' in session:
+            reset_quota_if_needed(conn, session['user_id'])
+            user = conn.execute(
+                'SELECT plan, ai_quota, language FROM users WHERE id = ?',
+                (session['user_id'],)
+            ).fetchone()
+            if user['plan'] != 'pro' and user['ai_quota'] <= 0:
+                return jsonify({'quota_exceeded': True,
+                                'message': 'Daily quota used. Upgrade to Pro for unlimited.'}), 429
+            lang = user['language']
+            result = ai_module.answer_question(question, lang=lang, context_articles=context_articles)
+            if user['plan'] != 'pro':
+                conn.execute('UPDATE users SET ai_quota = ai_quota - 1 WHERE id = ?',
+                             (session['user_id'],))
+            conn.execute("""
+                INSERT INTO ai_log (user_id, question, answer, sources, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (session['user_id'], question,
+                  result['answer'], json.dumps(result.get('sources', [])), now()))
+            conn.commit()
+            new_quota = conn.execute(
+                'SELECT ai_quota FROM users WHERE id = ?', (session['user_id'],)
+            ).fetchone()['ai_quota']
+            return jsonify({
+                'question':        question,
+                'answer':          result['answer'],
+                'sources':         result.get('sources', []),
+                'related':         result.get('related', []),
+                'remaining_quota': new_quota if user['plan'] != 'pro' else 999,
+            })
 
-        if user['plan'] != 'pro':
-            conn.execute('UPDATE users SET ai_quota = ai_quota - 1 WHERE id = ?',
-                         (session['user_id'],))
-        conn.execute("""
-            INSERT INTO ai_log (user_id, question, answer, sources, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (session['user_id'], question,
-              result['answer'], json.dumps(result.get('sources', [])), now()))
-        conn.commit()
-
-        new_quota = conn.execute(
-            'SELECT ai_quota FROM users WHERE id = ?', (session['user_id'],)
-        ).fetchone()['ai_quota']
+        # Unauthenticated (Android / mobile app): answer without quota tracking
+        lang = (data.get('lang') or 'np')[:5]
+        result = ai_module.answer_question(question, lang=lang, context_articles=context_articles)
         return jsonify({
             'question':        question,
             'answer':          result['answer'],
             'sources':         result.get('sources', []),
             'related':         result.get('related', []),
-            'remaining_quota': new_quota if user['plan'] != 'pro' else 999,
+            'remaining_quota': 10,
         })
     finally:
         conn.close()
