@@ -1,14 +1,14 @@
 package samachar.ai.data.repository
 
 import com.google.gson.annotations.SerializedName
-import okhttp3.JavaNetCookieJar
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.*
-import java.net.CookieManager
-import java.net.CookiePolicy
 import java.util.concurrent.TimeUnit
 
 // ── Data classes matching Flask JSON responses ────────────────────────────────
@@ -101,17 +101,29 @@ interface FlaskApiService {
     suspend fun askAi(@Body body: AiAskRequest): FlaskAiResponse
 }
 
+// ── Simple in-memory cookie jar (no external dependency) ─────────────────────
+
+class InMemoryCookieJar : CookieJar {
+    private val store = mutableMapOf<String, MutableList<Cookie>>()
+
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        store.getOrPut(url.host) { mutableListOf() }.apply {
+            removeAll { old -> cookies.any { it.name == old.name } }
+            addAll(cookies)
+        }
+    }
+
+    override fun loadForRequest(url: HttpUrl): List<Cookie> =
+        store[url.host] ?: emptyList()
+}
+
 // ── Singleton client ──────────────────────────────────────────────────────────
 
 object FlaskApiClient {
     const val BASE_URL = "https://samachar-wg5rea.fly.dev/"
 
-    private val cookieJar = JavaNetCookieJar(
-        CookieManager().apply { setCookiePolicy(CookiePolicy.ACCEPT_ALL) }
-    )
-
     private val okHttp = OkHttpClient.Builder()
-        .cookieJar(cookieJar)
+        .cookieJar(InMemoryCookieJar())
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(HttpLoggingInterceptor().apply {
