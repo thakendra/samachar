@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Database (never commit the live DB — Railway uses ephemeral storage)
+backend/samachar.db
+backend/*.db
+
+# Logs
+backend/server_log.txt
+backend/server_err.txt
+backend/test_api.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets — add GEMINI_API_KEY as Railway env var instead
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# Android build artifacts
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+
+# Claude / scratch
+.claude/
+sam_now.png

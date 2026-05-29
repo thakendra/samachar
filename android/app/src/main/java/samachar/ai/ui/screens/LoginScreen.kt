@@ -75,11 +75,13 @@ fun LoginScreen(vm: AppViewModel, nav: NavController) {
 
     fun anon() {
         if (busy) return
-        if (name.isBlank()) { error = "Enter your name first"; return }
+        // In login mode there is no name field, so never block the guest flow on
+        // a missing name — fall back to a sensible default.
+        val guestName = name.trim().ifBlank { "Guest" }
         busy = true; error = null
         scope.launch {
             try {
-                val profile = vm.auth.signInAnonymous(name.trim(), ward.trim())
+                val profile = vm.auth.signInAnonymous(guestName, ward.trim())
                 vm.setUser(profile)
             } catch (e: Exception) {
                 error = e.message ?: "Sign-in failed"
