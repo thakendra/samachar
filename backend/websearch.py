@@ -111,24 +111,64 @@ NEPALI_SOURCES = (
     "kathmandupost", "nepalitimes", "spotlightnepal", "english.onlinekhabar",
 )
 
+# Known Indian / non-Nepali publishers that also publish in Devanagari (Hindi)
+# or English — these must NOT count as Nepali just because of the script.
+FOREIGN_SOURCES = (
+    "aajtak", "ndtv", "zee", "abp", "dainik", "jagran", "amar ujala",
+    "amarujala", "hindustan", "times of india", "timesofindia", "indian express",
+    "indianexpress", "the hindu", "thehindu", "news18", "india today",
+    "indiatoday", "republic", "firstpost", "scroll.in", "wion", "anandabazar",
+    "telegraphindia", "deccan", "skymet", "frontline", "open magazine",
+    "outlook", "livemint", "moneycontrol", "business standard", "tribune",
+    "bbc", "cnn", "reuters", "al jazeera", "guardian", "nytimes", "cbs",
+    "pbs", "npr", "fox", "abc news", "associated press", "calmatters",
+)
+_FOREIGN_DOMAINS = (".in/", ".in?", "/india", "indianexpress", "timesofindia",
+                    "ndtv.com", "aajtak", "skymetweather", "hindustantimes")
+
 _DEVANAGARI = re.compile(r"[ऀ-ॿ]")
+# Function words that are distinctively Nepali (not Hindi).
+_NEPALI_MARKERS = ("छ", "छन्", "हुन्छ", "गरे", "भएको", "गर्ने", "रहेको",
+                   "नेपाल", "काठमाडौं", "रू", "सरकार")
+# Function words that strongly signal Hindi (so we can demote Indian results).
+_HINDI_MARKERS = ("है", "हैं", "गया", "किया", "रहा", "क्यों", "नहीं",
+                  "हुए", "करेंगे", "लिए", "साथ")
 
 
 def _has_devanagari(text):
     return bool(_DEVANAGARI.search(text or ""))
 
 
+def _count(text, words):
+    return sum(1 for w in words if w in (text or ""))
+
+
 def _nepali_score(item):
-    """Higher = more likely to be genuine Nepali news (vs cross-script noise)."""
+    """
+    Higher = more likely to be genuine Nepali news. Negative = foreign noise.
+
+    Devanagari alone is NOT enough (Hindi shares the script), so we combine
+    source/domain reputation with Nepali-vs-Hindi function-word markers.
+    """
     score = 0
-    if _has_devanagari(item.get("title", "")):
-        score += 3
+    title = item.get("title", "") or ""
     src = (item.get("source", "") or "").lower()
-    if any(s in src for s in NEPALI_SOURCES):
-        score += 3
     url = (item.get("url", "") or "").lower()
+
+    # Hard signals
+    if any(s in src for s in NEPALI_SOURCES):
+        score += 5
     if ".np" in url or any(s in url for s in NEPALI_SOURCES):
+        score += 4
+    # Foreign source/domain → strong penalty (excludes it from Nepali-only).
+    if any(s in src for s in FOREIGN_SOURCES) or any(d in url for d in _FOREIGN_DOMAINS):
+        score -= 12
+
+    # Script + linguistic signals
+    if _has_devanagari(title):
         score += 2
+    score += 2 * _count(title, _NEPALI_MARKERS)
+    score -= 4 * _count(title, _HINDI_MARKERS)
     return score
 
 
