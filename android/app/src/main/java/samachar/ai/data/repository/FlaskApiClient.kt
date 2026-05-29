@@ -1,5 +1,7 @@
 package samachar.ai.data.repository
 
+import android.util.Log
+import com.google.gson.GsonBuilder
 import com.google.gson.annotations.SerializedName
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -14,10 +16,10 @@ import java.util.concurrent.TimeUnit
 // ── Data classes matching Flask JSON responses ────────────────────────────────
 
 data class FlaskArticle(
-    val id: String = "",
-    val title: String = "",
-    val dek: String = "",
-    val source: String = "",
+    val id: String? = null,
+    val title: String? = null,
+    val dek: String? = null,
+    val source: String? = null,
     @SerializedName("source_url") val sourceUrl: String? = null,
     @SerializedName("source_color") val sourceColor: String? = null,
     val category: String? = null,
@@ -134,10 +136,16 @@ object FlaskApiClient {
         })
         .build()
 
+    // lenient Gson: never throws on malformed JSON or type mismatches
+    private val gson = GsonBuilder()
+        .setLenient()
+        .serializeNulls()
+        .create()
+
     val service: FlaskApiService = Retrofit.Builder()
         .baseUrl(BASE_URL)
         .client(okHttp)
-        .addConverterFactory(GsonConverterFactory.create())
+        .addConverterFactory(GsonConverterFactory.create(gson))
         .build()
         .create(FlaskApiService::class.java)
 }
