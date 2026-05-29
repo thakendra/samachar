@@ -145,6 +145,90 @@ def _extract_json(text):
     return None
 
 
+# ── Nepali-Roman query understanding ─────────────────────────────
+# Most users type romanized Nepali ("sarkar ko nirnaya", "nepse aaja").
+# We expand any query into Devanagari + English keywords so the web search
+# can match Nepali-script coverage from across the internet.
+
+_DEVANAGARI_RE = re.compile(r'[ऀ-ॿ]')
+_query_cache = {}
+
+
+def _has_devanagari(text):
+    return bool(_DEVANAGARI_RE.search(text or ''))
+
+
+def expand_query(q):
+    """
+    Return {'devanagari', 'english', 'original'} for a search query.
+
+    - Already-Devanagari queries pass straight through.
+    - Romanized Nepali / English queries are transliterated + keyword-extracted
+      via Gemini (cached), so 'sarkar ko nirnaya' → 'सरकारको निर्णय'.
+    """
+    q = (q or '').strip()
+    if not q:
+        return {'devanagari': '', 'english': '', 'original': ''}
+
+    if _has_devanagari(q):
+        return {'devanagari': q, 'english': '', 'original': q}
+
+    if q in _query_cache:
+        return _query_cache[q]
+
+    prompt = (
+        "You convert a Nepali news search query (written in romanized Nepali or "
+        "English) into Devanagari Nepali plus concise English keywords.\n"
+        f'Query: "{q}"\n'
+        'Return ONLY JSON: '
+        '{"devanagari": "<query in Nepali Devanagari script>", '
+        '"english": "<2-5 English keywords>"}'
+    )
+    raw = _gemini(prompt, max_tokens=120)
+    data = _extract_json(raw) or {}
+    out = {
+        'devanagari': str(data.get('devanagari', '')).strip(),
+        'english': str(data.get('english', '')).strip() or q,
+        'original': q,
+    }
+    _query_cache[q] = out
+    return out
+
+
+# ── Live internet research (RAG grounding for the AI reporter) ────
+
+def web_research(query, limit=8, deep=2):
+    """
+    Search the internet for Nepali news on `query` and return result dicts.
+    `deep` = how many top results to also fetch full text for (grounding).
+    Never raises — returns [] if web search is unavailable.
+    """
+    try:
+        import websearch
+    except Exception as e:
+        print(f'[AI] websearch unavailable: {e}')
+        return []
+
+    exp = expand_query(query)
+    try:
+        results = websearch.search_news(
+            query,
+            limit=limit,
+            devanagari=exp.get('devanagari'),
+            english=exp.get('english'),
+        )
+    except Exception as e:
+        print(f'[AI] web_research search failed: {e}')
+        return []
+
+    for i, r in enumerate(results):
+        if i < deep:
+            txt = websearch.fetch_fulltext(r.get('url', ''), max_chars=1800)
+            if txt:
+                r['fulltext'] = txt
+    return results
+
+
 # ── Article summarization (Nepali output) ────────────────────────
 
 SUMMARIZE_PROMPT = """तपाईं samachar.ai का वरिष्ठ नेपाली समाचार सम्पादक हुनुहुन्छ।
@@ -218,44 +302,86 @@ def summarize_article(title, text, source_name='Unknown'):
 
 # ── AI Chat ──────────────────────────────────────────────────────
 
-ASK_PROMPT_NP = """तपाईं samachar.ai का AI सम्पादक हुनुहुन्छ — नेपालको सबैभन्दा स्मार्ट समाचार एप।
-प्रयोगकर्ताको प्रश्नको उत्तर नेपालीमा ३-५ वाक्यमा दिनुहोस्।
-नेपालको वास्तविक तथ्यहरू (राजनीति, NEPSE, जलविद्युत, मनसुन, क्रिकेट, आदि) मा आधारित रहनुहोस्।
-थाहा नभए स्पष्ट भन्नुहोस् — कहिल्यै तथ्याङ्क बनाउनु हुँदैन।
+ASK_PROMPT_NP = """तपाईं Samachar AI हुनुहुन्छ — एक विशेषज्ञ, तटस्थ र विवेकशील नेपाली समाचार रिपोर्टर।
+तपाईंले भर्खरै इन्टरनेटभरिका विभिन्न नेपाली स्रोतहरूबाट जानकारी सङ्कलन गर्नुभएको छ (तल दिइएको)।
 
-हालको समाचार सन्दर्भ:
+नियमहरू:
+- तल दिइएका स्रोतहरूमा आधारित भएर मात्र रिपोर्ट गर्नुहोस् — कहिल्यै तथ्य वा तथ्याङ्क नबनाउनुहोस्।
+- वर्तमान कालमा, स्पष्ट र विवेकशील रिपोर्टरको शैलीमा ४-६ वाक्यमा लेख्नुहोस्।
+- स्रोतहरूबीच मतभेद भए "केही स्रोतका अनुसार… अरूका अनुसार…" भनी सन्तुलित रूपमा देखाउनुहोस्।
+- कुनै पक्ष नलिनुहोस्; तथ्यमा अडिग रहनुहोस्।
+- स्रोतमा जानकारी नभए स्पष्ट भन्नुहोस्।
+
+इन्टरनेटबाट सङ्कलित स्रोतहरू:
 {context}
 
 प्रयोगकर्ताको प्रश्न: {question}
 
-अन्तमा ठ्याक्कै यो लाइन राख्नुहोस्: SOURCES: <२-३ नेपाली प्रकाशनहरूको नाम, comma separated>"""
+अन्तमा ठ्याक्कै यो लाइन राख्नुहोस्: SOURCES: <प्रयोग गरिएका प्रकाशनहरूको नाम, comma separated>"""
 
-ASK_PROMPT_EN = """You are the AI editor of samachar.ai — Nepal's smartest news app.
-Answer in 3-5 sentences using real Nepal context (politics, NEPSE, hydropower, monsoon, cricket, etc.).
-If unsure, say so briefly — never fabricate statistics.
+ASK_PROMPT_EN = """You are Samachar AI — an expert, impartial, rational Nepali news reporter.
+You have just gathered information from multiple Nepali sources across the internet (provided below).
 
-Recent Nepal headlines for context:
+Rules:
+- Report ONLY from the sources below — never fabricate facts or statistics.
+- Write in present tense, 4-6 sentences, like a clear and rational reporter.
+- If sources disagree, show it in a balanced way ("according to some sources… while others…").
+- Take no side; stay grounded in the facts.
+- If the sources don't cover it, say so plainly.
+
+Sources gathered from the internet:
 {context}
 
 User question: {question}
 
-End with exactly: SOURCES: <2-3 Nepali publication names, comma separated>"""
+End with exactly: SOURCES: <names of the publications you used, comma separated>"""
 
 
-def answer_question(question, lang='np', context_articles=None):
-    """Ask Gemini a Nepal news question. Returns {answer, sources, related}."""
-    ctx_lines = []
-    if context_articles:
-        for a in context_articles[:10]:
-            ctx_lines.append(
-                f"• [{a.get('source', '')}] {a.get('title', '')} — {a.get('dek', '')}"
-            )
-    context = '\n'.join(ctx_lines) if ctx_lines else 'हालको समाचार लोड भएको छैन।'
+def _build_context(local_articles, web_results):
+    """Compose a grounding context block from local + live-web material."""
+    lines = []
+    if web_results:
+        lines.append('— इन्टरनेटबाट (LIVE WEB) —')
+        for r in web_results[:8]:
+            ft = r.get('fulltext')
+            base = f"• [{r.get('source','')}] {r.get('title','')}"
+            if r.get('snippet'):
+                base += f" — {r['snippet']}"
+            lines.append(base)
+            if ft:
+                lines.append(f"   विवरण: {ft[:600]}")
+    if local_articles:
+        lines.append('— समाचार आर्काइभ (LOCAL) —')
+        for a in local_articles[:8]:
+            lines.append(f"• [{a.get('source','')}] {a.get('title','')} — {a.get('dek','')}")
+    return '\n'.join(lines) if lines else 'कुनै सन्दर्भ उपलब्ध छैन।'
+
+
+def answer_question(question, lang='np', context_articles=None, use_web=True):
+    """
+    Answer a Nepal news question as a rational reporter.
+
+    When `use_web` is set, gathers live coverage from across the internet
+    (RAG grounding) and blends it with the local archive before reasoning.
+    Returns {answer, sources, related} where `related` are web result cards
+    ({title, source, url}) so the UI can show real, clickable provenance.
+    """
+    web_results = []
+    if use_web:
+        web_results = web_research(question, limit=8, deep=2)
+
+    context = _build_context(context_articles or [], web_results)
 
     prompt_template = ASK_PROMPT_NP if lang == 'np' else ASK_PROMPT_EN
     prompt = prompt_template.format(context=context, question=question)
 
-    raw = _gemini(prompt, max_tokens=700)
+    raw = _gemini(prompt, max_tokens=900)
+
+    # Web result cards (provenance) for the UI, regardless of model success.
+    related = [
+        {'title': r.get('title', ''), 'source': r.get('source', ''), 'url': r.get('url', '')}
+        for r in web_results[:6] if r.get('title')
+    ]
 
     if raw:
         parts = re.split(r'SOURCES\s*:', raw, maxsplit=1, flags=re.IGNORECASE)
@@ -264,11 +390,23 @@ def answer_question(question, lang='np', context_articles=None):
         if len(parts) > 1:
             raw_sources = parts[1].split('\n')[0]
             sources = [s.strip().strip('.,।') for s in raw_sources.split(',') if s.strip()]
+        # Prefer real source names from the web research when the model is vague.
+        if not sources and web_results:
+            seen = []
+            for r in web_results:
+                s = r.get('source')
+                if s and s not in seen:
+                    seen.append(s)
+            sources = seen[:4]
         if not sources:
             sources = ['OnlineKhabar', 'Kantipur']
-        return {'answer': answer, 'sources': sources[:4], 'related': []}
+        return {'answer': answer, 'sources': sources[:5], 'related': related}
 
-    return _keyword_fallback(question)
+    fb = _keyword_fallback(question)
+    if related:
+        fb['related'] = related
+        fb['sources'] = [r['source'] for r in related[:3] if r.get('source')] or fb['sources']
+    return fb
 
 
 def local_area_summary(address, articles=None):

@@ -344,6 +344,61 @@ def list_articles():
         conn.close()
 
 
+@app.get('/api/search/web')
+def search_web():
+    """
+    Internet-wide Nepali news search (PRO feature).
+
+    Scans news from across the web — any Nepali publisher Google News indexes,
+    not just our scraped feeds. Handles romanized-Nepali queries by expanding
+    them to Devanagari first. Free users get a 3-result preview; PRO gets all.
+    """
+    q = (request.args.get('q') or '').strip()
+    if not q or len(q) > 200:
+        return jerr('query required (under 200 chars)')
+
+    try:
+        import websearch
+        exp = ai_module.expand_query(q)
+        results = websearch.search_news(
+            q, limit=24,
+            devanagari=exp.get('devanagari'),
+            english=exp.get('english'),
+        )
+    except Exception as e:
+        print(f'[search_web] failed: {e}')
+        return jsonify({'query': q, 'results': [], 'total': 0,
+                        'error': 'search temporarily unavailable'})
+
+    is_pro = False
+    if 'user_id' in session:
+        conn = get_db()
+        try:
+            u = conn.execute('SELECT plan FROM users WHERE id = ?',
+                             (session['user_id'],)).fetchone()
+            is_pro = bool(u and u['plan'] == 'pro')
+        finally:
+            conn.close()
+
+    if not is_pro:
+        return jsonify({
+            'query':        q,
+            'expanded':     exp,
+            'pro_required': True,
+            'results':      results[:3],
+            'total':        len(results),
+            'message':      'इन्टरनेटभरि नेपाली समाचार खोज्न Samachar PRO चाहिन्छ।',
+        })
+
+    return jsonify({
+        'query':        q,
+        'expanded':     exp,
+        'pro_required': False,
+        'results':      results,
+        'total':        len(results),
+    })
+
+
 @app.get('/api/articles/<aid>')
 def get_article(aid):
     conn = get_db()
