@@ -219,6 +219,37 @@ def expand_query(q):
 
 # ── Live internet research (RAG grounding for the AI reporter) ────
 
+# Function/question words to drop when turning a natural-language question into
+# a keyword search. Covers romanized Nepali, Devanagari, and English.
+_STOPWORDS = {
+    # romanized Nepali
+    'ko', 'ka', 'ki', 'le', 'lai', 'ma', 'bata', 'dekhi', 'samma', 'ra',
+    'pani', 'cha', 'chha', 'cho', 'ho', 'hola', 'kasto', 'kasari', 'kati',
+    'ke', 'kun', 'kaha', 'kahile', 'kina', 'aaja', 'aja', 'hijo', 'bholi',
+    'aba', 'tara', 'wa', 'va', 'aile', 'huncha', 'bhayo', 'garyo', 'garna',
+    # Devanagari
+    'को', 'का', 'की', 'ले', 'लाई', 'मा', 'बाट', 'देखि', 'सम्म', 'र',
+    'पनि', 'छ', 'छन्', 'हो', 'कस्तो', 'कसरी', 'कति', 'के', 'कुन', 'कहाँ',
+    'कहिले', 'किन', 'आज', 'हिजो', 'भोलि', 'अब', 'तर', 'वा', 'अहिले',
+    'हुन्छ', 'भयो', 'गर्‍यो', 'गर्न', 'बारे', 'बारेमा',
+    # English
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'of', 'to', 'in', 'on',
+    'for', 'and', 'or', 'what', 'how', 'when', 'why', 'where', 'who',
+    'today', 'now', 'about', 'latest', 'news',
+}
+
+
+def _keywords(text, max_words=6):
+    """Reduce a natural-language question to content keywords for searching."""
+    if not text:
+        return ''
+    toks = re.findall(r'[\wऀ-ॿ]+', text)
+    kept = [t for t in toks if t.lower() not in _STOPWORDS and len(t) > 1]
+    if not kept:
+        kept = toks
+    return ' '.join(kept[:max_words])
+
+
 def web_research(query, limit=8, deep=2):
     """
     Search the internet for Nepali news on `query` and return result dicts.
@@ -231,10 +262,13 @@ def web_research(query, limit=8, deep=2):
         print(f'[AI] websearch unavailable: {e}')
         return []
 
-    exp = expand_query(query)
+    # Questions are sentences — reduce to content keywords so the search is
+    # broad enough to match live coverage (a full sentence matches nothing).
+    kw = _keywords(query) or query
+    exp = expand_query(kw)
     try:
         results = websearch.search_news(
-            query,
+            kw,
             limit=limit,
             devanagari=exp.get('devanagari'),
             english=exp.get('english'),
@@ -424,11 +458,65 @@ def answer_question(question, lang='np', context_articles=None, use_web=True):
             sources = ['OnlineKhabar', 'Kantipur']
         return {'answer': answer, 'sources': sources[:5], 'related': related}
 
+    # Gemini unavailable (rate-limited). If we still gathered live coverage,
+    # return an EXTRACTIVE answer grounded in the real snippets — far better
+    # than a canned number — so the RAG reporter stays useful without an LLM.
+    if web_results:
+        extractive = _extractive_answer(question, web_results, lang)
+        if extractive:
+            srcs = []
+            for r in web_results:
+                s = r.get('source')
+                if s and s not in srcs:
+                    srcs.append(s)
+            return {
+                'answer': extractive,
+                'sources': srcs[:5] or ['samachar.ai'],
+                'related': related,
+            }
+
     fb = _keyword_fallback(question)
     if related:
         fb['related'] = related
         fb['sources'] = [r['source'] for r in related[:3] if r.get('source')] or fb['sources']
     return fb
+
+
+def _extractive_answer(question, web_results, lang='np'):
+    """
+    Compose a grounded answer from live web coverage without an LLM.
+
+    Used when the Gemini quota is exhausted: we summarize what the gathered
+    Nepali sources are actually reporting, in the reporter's voice, citing the
+    real publications. Returns '' if there's nothing usable.
+    """
+    bits = []
+    seen = set()
+    for r in web_results[:5]:
+        src = (r.get('source') or '').strip()
+        title = (r.get('title') or '').strip()
+        snip = (r.get('snippet') or '').strip()
+        line = snip or title
+        if not line:
+            continue
+        key = line[:50].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if src:
+            bits.append(f'{src} का अनुसार, {line}।' if lang == 'np'
+                        else f'According to {src}, {line}.')
+        else:
+            bits.append(f'{line}।' if lang == 'np' else f'{line}.')
+        if len(bits) >= 4:
+            break
+    if not bits:
+        return ''
+    if lang == 'np':
+        intro = 'इन्टरनेटभरिका नेपाली स्रोतहरूका अनुसार हालको अवस्था यस्तो छ: '
+    else:
+        intro = 'Based on current reporting from Nepali sources across the internet: '
+    return intro + ' '.join(bits)
 
 
 def local_area_summary(address, articles=None):
