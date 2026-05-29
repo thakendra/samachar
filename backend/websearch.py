@@ -171,8 +171,11 @@ def search_news(query, limit=20, devanagari=None, english=None, nepali_only=True
     # Rank Nepali-relevant results first (stable within score by recency order).
     merged.sort(key=lambda x: x.get("_score", 0), reverse=True)
 
+    # "Only Nepali" — as soon as we have ANY genuine Nepali hit, drop the
+    # cross-script English/Indian noise entirely. Only when there are zero
+    # Nepali hits do we fall back to returning the unfiltered set.
     nepali = [m for m in merged if m.get("_score", 0) > 0]
-    if nepali_only and len(nepali) >= 3:
+    if nepali_only and len(nepali) >= 1:
         merged = nepali
 
     for m in merged:

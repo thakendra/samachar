@@ -277,14 +277,18 @@ def web_research(query, limit=8, deep=2):
         attempts.append(kw_words[0])
 
     results = []
-    for attempt in attempts:
+    for idx, attempt in enumerate(attempts):
         exp = expand_query(attempt)
+        # The first (full) attempt may use the English expansion for recall;
+        # broadened fallbacks search Devanagari-ONLY so they stay Nepali and
+        # don't pull in global English (e.g. US/UK) politics noise.
+        english = exp.get('english') if idx == 0 else None
         try:
             results = websearch.search_news(
                 attempt,
                 limit=limit,
                 devanagari=exp.get('devanagari'),
-                english=exp.get('english'),
+                english=english,
             )
         except Exception as e:
             print(f'[AI] web_research search failed: {e}')
