@@ -953,15 +953,20 @@ const TOPIC_PILLS = [
 
 const SearchResultsScreen = ({ go }) => {
   const ctx = useApp();
+  const isPro = ctx.user?.plan === 'pro';
   const [q, setQ] = React.useState(ctx.searchQuery || '');
   const [activeTopic, setActiveTopic] = React.useState('');
+  const [mode, setMode] = React.useState('archive'); // 'archive' | 'web'
   const [results, setResults] = React.useState([]);
+  const [web, setWeb] = React.useState(null);  // { results, pro_required, message, total }
   const [busy, setBusy] = React.useState(false);
   const inputRef = React.useRef(null);
 
   React.useEffect(() => { inputRef.current?.focus(); }, []);
 
+  // Local archive search
   React.useEffect(() => {
+    if (mode !== 'archive') return;
     const t = setTimeout(async () => {
       setBusy(true);
       try {
@@ -974,7 +979,23 @@ const SearchResultsScreen = ({ go }) => {
       } finally { setBusy(false); }
     }, 300);
     return () => clearTimeout(t);
-  }, [q, activeTopic]);
+  }, [q, activeTopic, mode]);
+
+  // Internet-wide web search (PRO) — detects romanized Nepali server-side
+  React.useEffect(() => {
+    if (mode !== 'web') return;
+    if (!q.trim()) { setWeb(null); return; }
+    const t = setTimeout(async () => {
+      setBusy(true);
+      try {
+        const res = await API.searchWeb(q.trim());
+        setWeb(res);
+      } catch (e) {
+        setWeb({ results: [], error: e.message });
+      } finally { setBusy(false); }
+    }, 450);
+    return () => clearTimeout(t);
+  }, [q, mode]);
 
   return (
     <>
@@ -992,16 +1013,102 @@ const SearchResultsScreen = ({ go }) => {
         </div>
       </div>
 
-      {/* Topic filter pills */}
-      <div className="pill-row" style={{ paddingTop: 4, paddingBottom: 10 }}>
-        {TOPIC_PILLS.map(tp => (
-          <Pill key={tp.id} on={activeTopic === tp.id} onClick={() => setActiveTopic(tp.id)}>
-            {tp.label}
-          </Pill>
-        ))}
+      {/* Search-scope toggle: our archive vs the whole internet (PRO) */}
+      <div style={{ display: 'flex', gap: 8, padding: '2px 16px 8px' }}>
+        <span className="pill" data-on={mode === 'archive'} onClick={() => setMode('archive')}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+          <Icon name="search" size={11} /> हाम्रो संग्रह
+        </span>
+        <span className="pill" data-on={mode === 'web'} onClick={() => setMode('web')}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+          <Icon name="globe" size={11} /> इन्टरनेटभरि
+          {!isPro && <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--accent)' }}>PRO</span>}
+        </span>
       </div>
 
-      <div className="scrollable">
+      {/* Topic filter pills — only for the local archive */}
+      {mode === 'archive' && (
+        <div className="pill-row" style={{ paddingTop: 0, paddingBottom: 10 }}>
+          {TOPIC_PILLS.map(tp => (
+            <Pill key={tp.id} on={activeTopic === tp.id} onClick={() => setActiveTopic(tp.id)}>
+              {tp.label}
+            </Pill>
+          ))}
+        </div>
+      )}
+
+      {/* ── Internet-wide web search results ── */}
+      {mode === 'web' && (
+        <div className="scrollable">
+          <div style={{ padding: '6px 20px 10px' }} className="meta">
+            {busy ? 'इन्टरनेटभरि खोजिँदैछ…'
+              : !q.trim() ? 'कुनै पनि शब्द लेख्नुहोस् — इन्टरनेटभरिका नेपाली स्रोतहरूबाट खोज्छौं। (नेपाली रोमनमा पनि लेख्न सक्नुहुन्छ)'
+              : web ? `${web.total ?? (web.results || []).length} परिणाम · "${q}"` : ''}
+          </div>
+
+          {/* Romanized → Devanagari hint */}
+          {web && web.expanded && web.expanded.devanagari && (
+            <div style={{ padding: '0 20px 8px' }}>
+              <span className="tag" style={{ background: 'var(--bg-elev)' }}>
+                खोजी: {web.expanded.devanagari}
+              </span>
+            </div>
+          )}
+
+          {(web?.results || []).map((r, i) => (
+            <a key={i} href={r.url} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'block', padding: '13px 20px', borderBottom: '1px solid var(--rule)',
+                textDecoration: 'none', color: 'inherit' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                <Icon name="globe" size={11} color="var(--ink-3)" />
+                <span className="eyebrow" style={{ fontSize: 9.5, color: 'var(--ink-3)' }}>
+                  {r.source}{r.published ? ' · ' + (r.published || '').slice(0, 16) : ''}
+                </span>
+              </div>
+              <div className="serif" style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35 }}>{r.title}</div>
+              {r.snippet && (
+                <div className="body" style={{ fontSize: 12.5, marginTop: 5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                  {r.snippet}
+                </div>
+              )}
+            </a>
+          ))}
+
+          {/* PRO upsell when the server only returned a preview */}
+          {web && web.pro_required && (
+            <div style={{ margin: '16px 20px 30px', padding: 18, borderRadius: 14,
+              border: '1px solid var(--accent)', background: 'var(--accent-soft)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <Icon name="globe" size={16} color="var(--accent)" />
+                <span className="serif" style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>
+                  इन्टरनेटभरि पूर्ण खोज — PRO
+                </span>
+              </div>
+              <div className="body" style={{ fontSize: 13, lineHeight: 1.55, marginBottom: 12 }}>
+                {web.message || 'इन्टरनेटभरि नेपाली समाचार खोज्न Samachar PRO चाहिन्छ।'}
+              </div>
+              <button className="btn btn-primary" onClick={() => go('premium')}>
+                <Icon name="sparkles" size={13} /> PRO मा अपग्रेड गर्नुहोस्
+              </button>
+            </div>
+          )}
+
+          {!busy && q.trim() && web && (web.results || []).length === 0 && !web.pro_required && (
+            <div style={{ padding: '40px 24px', textAlign: 'center' }}>
+              <Icon name="globe" size={28} color="var(--ink-4)" />
+              <div className="serif" style={{ fontSize: 16, fontWeight: 600, marginTop: 14 }}>
+                इन्टरनेटमा केही फेला परेन।
+              </div>
+              <button className="btn btn-primary" style={{ marginTop: 16 }}
+                onClick={() => { ctx.setPendingAi(q); go('ai'); }}>
+                <Icon name="sparkles" size={13} /> AI लाई सोध्नुहोस्
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'archive' && <div className="scrollable">
         <div style={{ padding: '6px 20px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="meta">
             {busy ? 'खोजिँदैछ…' : `${results.length} परिणाम${q ? ` · "${q}"` : ''}${activeTopic ? ` · ${TOPIC_PILLS.find(p=>p.id===activeTopic)?.label}` : ''}`}
@@ -1041,7 +1148,7 @@ const SearchResultsScreen = ({ go }) => {
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </>
   );
 };
@@ -1068,7 +1175,7 @@ const AiChatScreen = ({ go }) => {
       if (res.quota_exceeded) {
         setMessages(m => [...m, { role: 'system', text: res.message || 'दैनिक सीमा समाप्त भयो। Pro मा अपग्रेड गर्नुहोस्।' }]);
       } else {
-        setMessages(m => [...m, { role: 'ai', text: res.answer, sources: res.sources }]);
+        setMessages(m => [...m, { role: 'ai', text: res.answer, sources: res.sources, related: res.related }]);
         await ctx.refreshUser();
       }
     } catch (e) {
@@ -1209,6 +1316,26 @@ const AiChatScreen = ({ go }) => {
                 <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--rule)',
                   display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {m.sources.map((s, j) => <span key={j} className="tag">{s}</span>)}
+                </div>
+              )}
+              {m.role === 'ai' && m.related && m.related.length > 0 && (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--rule)' }}>
+                  <div className="eyebrow" style={{ marginBottom: 8, color: 'var(--ink-3)', fontSize: 9.5 }}>
+                    इन्टरनेटका स्रोतहरू
+                  </div>
+                  {m.related.map((r, j) => (
+                    <a key={j} href={r.url} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', marginBottom: 6,
+                        border: '1px solid var(--rule)', borderRadius: 10, background: 'var(--bg)',
+                        textDecoration: 'none', color: 'var(--ink-1)' }}>
+                      <Icon name="globe" size={12} color="var(--ink-3)" />
+                      <span style={{ flex: 1, fontSize: 12.5, lineHeight: 1.4, fontFamily: 'var(--sans)' }}>
+                        {r.title}
+                        <span style={{ color: 'var(--ink-3)', fontSize: 11 }}> · {r.source}</span>
+                      </span>
+                      <Icon name="arrow-right" size={12} color="var(--ink-3)" />
+                    </a>
+                  ))}
                 </div>
               )}
               {m.role === 'system' && (

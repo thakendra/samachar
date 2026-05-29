@@ -44,6 +44,9 @@ const API = (() => {
     },
     article:   (id)       => request('/articles/' + id),
 
+    // internet-wide Nepali news search (PRO) — q can be romanized Nepali
+    searchWeb: (q)        => request('/search/web?q=' + encodeURIComponent(q)),
+
     // local area news
     localNews: (address)  => request('/local-news?q=' + encodeURIComponent(address)),
 
