@@ -285,6 +285,80 @@ def web_research(query, limit=8, deep=2):
     return results
 
 
+# ── Bias engine ──────────────────────────────────────────────────
+# A stable, efficient bias meter. Instead of trusting one noisy per-article
+# LLM number, we combine three cheap signals:
+#   1. a per-source editorial baseline (where a Nepali outlet's lean is known),
+#   2. a framing-language signal from the headline/body (pro-govt vs critical /
+#      pro-market vs labour vocabulary),
+#   3. the LLM's own read when available — blended, not trusted blindly.
+# This keeps bias consistent across articles from the same source and works
+# even when the Gemini quota is exhausted.
+
+# Baseline lean per source (0=left … 50=center … 100=right). Conservative:
+# most Nepali outlets sit near the center; only well-characterised leans move.
+SOURCE_BIAS = {
+    'gorkhapatra': 62, 'rastriya samachar samiti': 58, 'rss': 58,   # state media → pro-govt
+    'the rising nepal': 60,
+    'kantipur': 46, 'ekantipur': 46, 'kathmandu post': 46,
+    'onlinekhabar': 50, 'setopati': 48, 'ratopati': 50, 'nagarik': 47,
+    'annapurna post': 52, 'naya patrika': 47, 'nayapatrika': 47,
+    'himalkhabar': 42, 'himal': 42, 'nepal times': 44, 'nepali times': 44,
+    'lokaantar': 45, 'baahrakhari': 49, 'nepalpress': 50,
+    'bizmandu': 64, 'sharesansar': 66, 'merolagani': 66,             # market-focused → pro-market
+    'arthik abhiyan': 62, 'corporate nepal': 64,
+    'techpana': 55, 'ictframe': 55,
+    'myrepublica': 52, 'republica': 52, 'khabarhub': 53,
+}
+
+_PRO_GOVT_WORDS = ['सरकारले', 'मन्त्रीले', 'उपलब्धि', 'सफलता', 'प्रगति', 'घोषणा गरे',
+                   'प्रतिबद्ध', 'सुशासन', 'विकास निर्माण']
+_CRITICAL_WORDS = ['विफल', 'असफल', 'भ्रष्टाचार', 'विरोध', 'आलोचना', 'घोटाला',
+                   'अनियमितता', 'लापरवाही', 'विवाद', 'आरोप', 'राजीनामा माग']
+_PRO_MARKET_WORDS = ['लगानी', 'नाफा', 'वृद्धि', 'बजार', 'निजी क्षेत्र', 'शेयर', 'मुनाफा']
+_LABOUR_WORDS = ['श्रमिक', 'मजदुर', 'हडताल', 'गरिब', 'असमानता', 'शोषण', 'न्यूनतम ज्याला']
+
+
+def _label_for(bias):
+    if bias < 35:   return 'Center-Left'
+    if bias < 45:   return 'Center-Left'
+    if bias <= 55:  return 'Center'
+    if bias <= 65:  return 'Center-Right'
+    return 'Center-Right'
+
+
+def compute_bias(source_name, title, text, llm_bias=None):
+    """
+    Blend source baseline + framing signal + (optional) LLM read into a single
+    0-100 bias score and a human label. Deterministic and quota-free.
+    """
+    src = (source_name or '').strip().lower()
+    baseline = 50
+    for key, val in SOURCE_BIAS.items():
+        if key in src:
+            baseline = val
+            break
+
+    blob = ((title or '') + ' ' + (text or '')[:600])
+    nudge = 0
+    nudge += 4 * sum(1 for w in _PRO_GOVT_WORDS if w in blob)
+    nudge -= 4 * sum(1 for w in _CRITICAL_WORDS if w in blob)
+    nudge += 3 * sum(1 for w in _PRO_MARKET_WORDS if w in blob)
+    nudge -= 3 * sum(1 for w in _LABOUR_WORDS if w in blob)
+    nudge = max(-15, min(15, nudge))
+
+    heuristic = max(0, min(100, baseline + nudge))
+
+    if isinstance(llm_bias, (int, float)) and 0 <= llm_bias <= 100:
+        # Trust the LLM somewhat, but anchor to source/framing for stability.
+        final = round(0.55 * heuristic + 0.45 * llm_bias)
+    else:
+        final = heuristic
+
+    final = max(0, min(100, int(final)))
+    return final, _label_for(final)
+
+
 # ── Article summarization (Nepali output) ────────────────────────
 
 SUMMARIZE_PROMPT = """तपाईं samachar.ai का वरिष्ठ नेपाली समाचार सम्पादक हुनुहुन्छ।
@@ -324,12 +398,13 @@ def summarize_article(title, text, source_name='Unknown'):
     data = _extract_json(raw) if raw else None
 
     if data and 'dek' in data:
-        bias_val = data.get('bias', 50)
-        if not isinstance(bias_val, int):
+        llm_bias = data.get('bias', None)
+        if not isinstance(llm_bias, (int, float)):
             try:
-                bias_val = int(str(bias_val).strip())
+                llm_bias = int(str(llm_bias).strip())
             except Exception:
-                bias_val = 50
+                llm_bias = None
+        bias_val, bias_label = compute_bias(source_name, title, text, llm_bias)
         return {
             'dek':         str(data.get('dek', ''))[:300],
             'body':        [str(p) for p in (data.get('body') or [])[:4] if p],
@@ -337,13 +412,14 @@ def summarize_article(title, text, source_name='Unknown'):
             'why_matters': str(data.get('why_matters', ''))[:400],
             'category':    str(data.get('category', 'WORLD')).upper(),
             'tag':         str(data.get('tag', 'nepal')).lower(),
-            'bias':        max(0, min(100, bias_val)),
-            'bias_label':  str(data.get('bias_label', 'Center')),
+            'bias':        bias_val,
+            'bias_label':  bias_label,
         }
 
     # ── Heuristic fallback ───────────────────────────────────────
     words = (text or '').split()
     paras = [' '.join(words[i:i + 70]) for i in range(0, min(len(words), 210), 70) if words[i:i + 70]]
+    bias_val, bias_label = compute_bias(source_name, title, text, None)
     return {
         'dek':         (title or '')[:200],
         'body':        paras[:3] or [title],
@@ -351,8 +427,8 @@ def summarize_article(title, text, source_name='Unknown'):
         'why_matters': f'{source_name} द्वारा प्रकाशित।',
         'category':    _guess_category(title, text),
         'tag':         _guess_tag(title, text),
-        'bias':        50,
-        'bias_label':  'Center',
+        'bias':        bias_val,
+        'bias_label':  bias_label,
     }
 
 
