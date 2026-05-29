@@ -1,0 +1,25 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - 'static/**'
+
+jobs:
+  deploy:
+    name: Deploy to Hostinger VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull latest code on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 72.60.203.57
+          username: root
+          password: ${{ secrets.VPS_PASSWORD }}
+          script: |
+            cd /opt/samachar
+            git pull --ff-only
+            systemctl restart samachar
+            echo "Deploy done — $(date)"
