@@ -63,9 +63,15 @@ class AppViewModel : ViewModel() {
         if (currentUid != null) {
             viewModelScope.launch {
                 try {
-                    _user.value = auth.loadProfile(currentUid)
-                    refreshBookmarks()
-                    refreshNotifications()
+                    // 8 s timeout — Firestore can hang forever on cold emulator/no-net
+                    kotlinx.coroutines.withTimeout(8_000L) {
+                        _user.value = auth.loadProfile(currentUid)
+                        refreshBookmarks()
+                        refreshNotifications()
+                    }
+                } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                    // Timed out — proceed as guest; user can sign in manually
+                    Firebase.auth.signOut()
                 } catch (e: Exception) {
                     Firebase.auth.signOut()
                 } finally {

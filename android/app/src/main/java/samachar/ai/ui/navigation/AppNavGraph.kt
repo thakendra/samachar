@@ -53,13 +53,10 @@ fun AppNavGraph(vm: AppViewModel) {
     val loading by vm.loading.collectAsState()
     val toastMsg by vm.toast.collectAsState()
 
-    // Decide initial route
-    val start = when {
-        loading -> Routes.SPLASH
-        user == null -> Routes.LOGIN
-        user?.onboarded == false -> Routes.ONBOARDING
-        else -> Routes.HOME
-    }
+    // startDestination must be stable — always start at SPLASH, then redirect
+    // in the LaunchedEffect once the auth state is known. Changing startDestination
+    // after NavHost is composed causes undefined behaviour.
+    val start = Routes.SPLASH
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -102,21 +99,31 @@ fun AppNavGraph(vm: AppViewModel) {
         Toast(message = toastMsg)
     }
 
-    // Watch user state to redirect after sign-in / sign-out
+    // Navigate away from SPLASH once auth state is resolved, or redirect after
+    // sign-in / sign-out.
     androidx.compose.runtime.LaunchedEffect(user, loading) {
-        if (loading) return@LaunchedEffect
+        if (loading) return@LaunchedEffect          // still waiting — stay on splash
+
         val target = when {
-            user == null -> Routes.LOGIN
-            user?.onboarded == false -> Routes.ONBOARDING
-            else -> Routes.HOME
+            user == null               -> Routes.LOGIN
+            user?.onboarded == false   -> Routes.ONBOARDING
+            else                       -> Routes.HOME
         }
-        val current = nav.currentDestination?.route
-        // Only redirect if we're stuck on the wrong gate
-        if (current == Routes.SPLASH ||
-            (current == Routes.LOGIN && user != null) ||
-            (current in setOf(Routes.HOME, Routes.DISCOVER, Routes.PREMIUM,
-                              Routes.PROFILE, Routes.ARTICLE) && user == null)) {
-            nav.navigate(target) { popUpTo(0) }
+        val current = nav.currentDestination?.route ?: Routes.SPLASH
+
+        when {
+            // Always leave splash once loading is done
+            current == Routes.SPLASH -> nav.navigate(target) { popUpTo(0) }
+            // Redirect to home after login
+            current == Routes.LOGIN && user != null ->
+                nav.navigate(target) { popUpTo(0) }
+            // Sign-out from any authenticated screen
+            current in setOf(Routes.HOME, Routes.DISCOVER, Routes.PREMIUM,
+                             Routes.PROFILE, Routes.ARTICLE,
+                             Routes.BOOKMARKS, Routes.SEARCH,
+                             Routes.AI, Routes.SETTINGS,
+                             Routes.NOTIFICATIONS) && user == null ->
+                nav.navigate(Routes.LOGIN) { popUpTo(0) }
         }
     }
 }
