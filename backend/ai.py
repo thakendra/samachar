@@ -497,6 +497,9 @@ def _extractive_answer(question, web_results, lang='np'):
         title = (r.get('title') or '').strip()
         snip = (r.get('snippet') or '').strip()
         line = snip or title
+        # Google News appends the publisher name to snippets — drop the dupe.
+        if src and line.endswith(src):
+            line = line[:-len(src)].strip(' -–—|')
         if not line:
             continue
         key = line[:50].lower()
