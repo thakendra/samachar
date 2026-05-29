@@ -171,11 +171,12 @@ def search_news(query, limit=20, devanagari=None, english=None, nepali_only=True
     # Rank Nepali-relevant results first (stable within score by recency order).
     merged.sort(key=lambda x: x.get("_score", 0), reverse=True)
 
-    # "Only Nepali" — as soon as we have ANY genuine Nepali hit, drop the
-    # cross-script English/Indian noise entirely. Only when there are zero
-    # Nepali hits do we fall back to returning the unfiltered set.
+    # "Only Nepali" means exactly that: keep genuine Nepali coverage and drop
+    # all cross-script English/Indian noise — even if that leaves the list
+    # empty (the caller can then broaden the query). This is what stops a
+    # generic English expansion like "politics" from surfacing US/UK results.
     nepali = [m for m in merged if m.get("_score", 0) > 0]
-    if nepali_only and len(nepali) >= 1:
+    if nepali_only:
         merged = nepali
 
     for m in merged:
