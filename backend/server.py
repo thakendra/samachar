@@ -113,13 +113,20 @@ def reset_quota_if_needed(conn, user_id):
         conn.commit()
 
 
-def article_to_dict(row):
+def article_to_dict(row, slim=False):
     d = row_to_dict(row)
     if d is None:
         return None
-    d['body']       = json.loads(d.get('body') or '[]')
-    d['key_points'] = json.loads(d.get('key_points') or '[]')
-    d.pop('full_text', None)   # don't send raw text to frontend
+    d.pop('full_text', None)   # never send raw text
+    if slim:
+        # List view: strip large fields — reduces response from ~440KB to ~40KB
+        d.pop('body', None)
+        d.pop('key_points', None)
+        d['body'] = []
+        d['key_points'] = []
+    else:
+        d['body']       = json.loads(d.get('body') or '[]')
+        d['key_points'] = json.loads(d.get('key_points') or '[]')
     return d
 
 
@@ -327,7 +334,7 @@ def list_articles():
         sql += ' ORDER BY published_at DESC LIMIT ?'
         params.append(limit)
         rows = conn.execute(sql, params).fetchall()
-        return jsonify([article_to_dict(r) for r in rows])
+        return jsonify([article_to_dict(r, slim=True) for r in rows])
     finally:
         conn.close()
 
