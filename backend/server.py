@@ -127,6 +127,11 @@ def article_to_dict(row, slim=False):
     else:
         d['body']       = json.loads(d.get('body') or '[]')
         d['key_points'] = json.loads(d.get('key_points') or '[]')
+    # SQLite stores booleans as INTEGER 0/1 — coerce to real bools so JSON
+    # emits true/false (Gson on Android rejects NUMBER for a Boolean field).
+    for bf in ('developing', 'ai_processed', 'verified', 'is_video'):
+        if bf in d and d[bf] is not None:
+            d[bf] = bool(d[bf])
     return d
 
 
