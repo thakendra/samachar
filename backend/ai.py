@@ -23,7 +23,7 @@ GEMINI_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyBcqNqnwS8-lRg203CWMd71diAyUL2_bb
 GEMINI_MODELS = [
     'models/gemini-2.0-flash-lite',   # 30 RPM free — primary
     'models/gemini-2.0-flash',        # 15 RPM free — fallback
-    'models/gemini-1.5-flash-8b',     # 15 RPM free — last resort
+    'models/gemini-2.5-flash',        # 5 RPM free  — separate quota pool
 ]
 
 _genai_client = None
@@ -163,8 +163,12 @@ def expand_query(q):
     Return {'devanagari', 'english', 'original'} for a search query.
 
     - Already-Devanagari queries pass straight through.
-    - Romanized Nepali / English queries are transliterated + keyword-extracted
-      via Gemini (cached), so 'sarkar ko nirnaya' → 'सरकारको निर्णय'.
+    - Romanized Nepali / English queries are transliterated to Devanagari by a
+      deterministic LOCAL engine (translit.py) — instant, free, and immune to
+      LLM rate limits. So 'sarkar ko nirnaya' → 'सरकार को निर्णय' even when the
+      Gemini quota is exhausted.
+    - If Gemini quota is available, we ALSO ask it to refine the Devanagari and
+      pull concise English keywords; otherwise we fall back to the local result.
     """
     q = (q or '').strip()
     if not q:
@@ -176,6 +180,22 @@ def expand_query(q):
     if q in _query_cache:
         return _query_cache[q]
 
+    # 1) Deterministic local transliteration — always works.
+    local_dev = ''
+    try:
+        import translit
+        if translit.looks_romanized(q):
+            local_dev = translit.romanized_to_devanagari(q)
+    except Exception as e:
+        print(f'[AI] translit unavailable: {e}')
+
+    out = {
+        'devanagari': local_dev,
+        'english': q,
+        'original': q,
+    }
+
+    # 2) Optional Gemini refinement (skipped automatically when rate-limited).
     prompt = (
         "You convert a Nepali news search query (written in romanized Nepali or "
         "English) into Devanagari Nepali plus concise English keywords.\n"
@@ -186,11 +206,13 @@ def expand_query(q):
     )
     raw = _gemini(prompt, max_tokens=120)
     data = _extract_json(raw) or {}
-    out = {
-        'devanagari': str(data.get('devanagari', '')).strip(),
-        'english': str(data.get('english', '')).strip() or q,
-        'original': q,
-    }
+    g_dev = str(data.get('devanagari', '')).strip()
+    g_eng = str(data.get('english', '')).strip()
+    if g_dev:
+        out['devanagari'] = g_dev          # trust the LLM's Devanagari when present
+    if g_eng:
+        out['english'] = g_eng
+
     _query_cache[q] = out
     return out
 
