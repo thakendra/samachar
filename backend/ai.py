@@ -265,17 +265,32 @@ def web_research(query, limit=8, deep=2):
     # Questions are sentences — reduce to content keywords so the search is
     # broad enough to match live coverage (a full sentence matches nothing).
     kw = _keywords(query) or query
-    exp = expand_query(kw)
-    try:
-        results = websearch.search_news(
-            kw,
-            limit=limit,
-            devanagari=exp.get('devanagari'),
-            english=exp.get('english'),
-        )
-    except Exception as e:
-        print(f'[AI] web_research search failed: {e}')
-        return []
+    kw_words = kw.split()
+
+    # Progressively broaden: full keywords → top-2 → top-1. Google News AND-
+    # matches terms, so a long phrase often returns nothing; fewer, more
+    # salient words recover real coverage.
+    attempts = [kw]
+    if len(kw_words) > 2:
+        attempts.append(' '.join(kw_words[:2]))
+    if len(kw_words) > 1:
+        attempts.append(kw_words[0])
+
+    results = []
+    for attempt in attempts:
+        exp = expand_query(attempt)
+        try:
+            results = websearch.search_news(
+                attempt,
+                limit=limit,
+                devanagari=exp.get('devanagari'),
+                english=exp.get('english'),
+            )
+        except Exception as e:
+            print(f'[AI] web_research search failed: {e}')
+            results = []
+        if len(results) >= 3:
+            break
 
     for i, r in enumerate(results):
         if i < deep:
