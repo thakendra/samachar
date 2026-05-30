@@ -66,6 +66,10 @@ def ensure_collection(dim=None):
             _collection_ready = True
             print(f'[vectorstore] created collection {COLLECTION} (dim={dim})')
             return True
+        # 409 = already exists (concurrent worker created it) → it's ready.
+        if r.status_code == 409:
+            _collection_ready = True
+            return True
         print(f'[vectorstore] ensure_collection failed {r.status_code}: {r.text[:160]}')
         return False
     except Exception as e:
