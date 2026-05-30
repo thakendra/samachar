@@ -91,10 +91,23 @@ def _clean_title(title):
     return (title or '').strip()
 
 
+def _strip_source(text, source):
+    """Remove a trailing ' - Publisher' or a dangling publisher name from text."""
+    t = (text or '').strip()
+    if ' - ' in t:
+        head, tail = t.rsplit(' - ', 1)
+        if 0 < len(tail) <= 40:
+            t = head.strip()
+    s = (source or '').strip()
+    if s and t.lower().endswith(s.lower()):
+        t = t[:-len(s)].strip(' -–—|:।.')
+    return t
+
+
 def _item_text(item):
     """Best available body text for an item (for summary building)."""
-    return (item.get('fulltext') or item.get('snippet') or
-            item.get('dek') or '').strip()
+    raw = (item.get('fulltext') or item.get('snippet') or item.get('dek') or '')
+    return _strip_source(raw, item.get('source', '')).strip()
 
 
 def _sentences(text):
@@ -102,19 +115,37 @@ def _sentences(text):
     return [s.strip() for s in parts if len(s.strip()) > 25]
 
 
-def _build_summary(items, max_sentences=3, max_chars=520):
+# Site taglines / boilerplate that scrapers sometimes capture as a "title".
+_JUNK = (
+    'news portal', '24-hour', '24 hour', 'breaking news', 'latest news from',
+    'online news', 'first.*portal',
+)
+
+
+def _is_junk(title):
+    t = (title or '').strip().lower()
+    if len(t) < 6:
+        return True
+    return any(re.search(j, t) for j in _JUNK)
+
+
+def _build_summary(items, headline='', max_sentences=3, max_chars=520):
     """
     Compose a short, de-duplicated summary from a cluster's items WITHOUT an
-    LLM. Prefer the richest item's text, then add complementary sentences from
-    other outlets that introduce new information (different leading words).
+    LLM. Prefer the richest item's text, add complementary sentences from other
+    outlets, and never just echo the headline.
     """
-    # Richest text first (fulltext > snippet), longest wins.
+    head_key = ' '.join(_tokens(headline))[:40]
     ranked = sorted(items, key=lambda it: len(_item_text(it)), reverse=True)
 
     picked = []
-    seen_prefix = set()
+    seen_prefix = {head_key} if head_key else set()
     for it in ranked:
-        for sent in _sentences(_item_text(it)) or ([_clean_title(it.get('title', ''))] if _clean_title(it.get('title', '')) else []):
+        body = _item_text(it)
+        cands = _sentences(body)
+        if not cands and body and len(body) > 25:
+            cands = [body]
+        for sent in cands:
             key = ' '.join(_tokens(sent[:60]))[:40]
             if not key or key in seen_prefix:
                 continue
@@ -149,6 +180,8 @@ def cluster_items(items, threshold=None):
     clusters = []   # each: {'tokens', 'items', 'order'}
     for idx, item in enumerate(items or []):
         title = item.get('title', '')
+        if _is_junk(_clean_title(title)):
+            continue   # drop scraped site taglines / boilerplate
         toks = _tokens(_clean_title(title) + ' ' + (item.get('snippet') or item.get('dek') or ''))
         if not toks:
             # Untokenizable — keep as its own singleton so we don't drop it.
@@ -176,14 +209,15 @@ def cluster_items(items, threshold=None):
             s = (it.get('source') or '').strip()
             if s and s not in sources:
                 sources.append(s)
+        headline = _clean_title(lead.get('title', ''))
         out.append({
             'lead':     lead,
             'items':    members,
             'sources':  sources,
             'size':     len(members),
             'order':    c['order'],
-            'headline': _clean_title(lead.get('title', '')),
-            'summary':  _build_summary(members),
+            'headline': headline,
+            'summary':  _build_summary(members, headline=headline),
             'tokens':   c['tokens'],
         })
 

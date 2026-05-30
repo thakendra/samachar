@@ -584,6 +584,13 @@ def answer_question(question, lang='np', context_articles=None, use_web=True):
         if not gathered:
             gathered = context_articles or []
         clusters = _cluster.cluster_items(gathered)
+        # For a Nepali answer, float Devanagari-headline stories to the top so
+        # the reader gets Nepali-language coverage, not English-source headlines.
+        if lang == 'np' and clusters:
+            dev = [c for c in clusters if _has_devanagari(c.get('headline', ''))]
+            non = [c for c in clusters if not _has_devanagari(c.get('headline', ''))]
+            if dev:
+                clusters = dev + non
     except Exception as e:
         print(f'[AI] clustering failed: {e}')
         clusters = []
