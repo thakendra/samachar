@@ -545,7 +545,10 @@ def _structured_from_clusters(clusters, lang='np'):
     why = _why_matters(f"{top.get('headline','')} {top.get('summary','')}", lang)
     story = {
         'headline':    top.get('headline', ''),
-        'summary':     top.get('summary', '') or top.get('headline', ''),
+        # NEVER fall back to the headline as the summary — that double-renders
+        # the headline ("echo"). An empty summary is fine: _format_story then
+        # shows headline + why-it-matters cleanly.
+        'summary':     top.get('summary', ''),
         'why_matters': why,
     }
     others = [c['headline'] for c in clusters[1:4] if c.get('headline')]
