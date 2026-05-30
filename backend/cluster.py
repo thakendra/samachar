@@ -135,22 +135,28 @@ def _build_summary(items, headline='', max_sentences=3, max_chars=520):
     LLM. Prefer the richest item's text, add complementary sentences from other
     outlets, and never just echo the headline.
     """
-    head_key = ' '.join(_tokens(headline))[:40]
+    head_toks = _tokens(headline)
     ranked = sorted(items, key=lambda it: len(_item_text(it)), reverse=True)
 
     picked = []
-    seen_prefix = {head_key} if head_key else set()
+    picked_toks = []
     for it in ranked:
         body = _item_text(it)
         cands = _sentences(body)
         if not cands and body and len(body) > 25:
             cands = [body]
         for sent in cands:
-            key = ' '.join(_tokens(sent[:60]))[:40]
-            if not key or key in seen_prefix:
+            st = _tokens(sent)
+            if not st:
                 continue
-            seen_prefix.add(key)
+            # Skip a sentence that is essentially the headline restated …
+            if head_toks and _jaccard(st, head_toks) >= 0.7:
+                continue
+            # … or a near-duplicate of something we've already picked.
+            if any(_jaccard(st, pt) >= 0.7 for pt in picked_toks):
+                continue
             picked.append(sent.rstrip('।.!? ') + ('।' if _has_devanagari(sent) else '.'))
+            picked_toks.append(st)
             if len(picked) >= max_sentences:
                 break
         if len(picked) >= max_sentences:
