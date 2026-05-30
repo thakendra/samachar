@@ -404,69 +404,168 @@ def summarize_article(title, text, source_name='Unknown'):
 
 # ── AI Chat ──────────────────────────────────────────────────────
 
-ASK_PROMPT_NP = """तपाईं Samachar AI हुनुहुन्छ — एक विशेषज्ञ, तटस्थ र विवेकशील नेपाली समाचार रिपोर्टर।
-तपाईंले भर्खरै इन्टरनेटभरिका विभिन्न नेपाली स्रोतहरूबाट जानकारी सङ्कलन गर्नुभएको छ (तल दिइएको)।
+# The AI answers as a news EDITOR, not an aggregator: it receives coverage
+# already clustered into one-story-per-topic (so duplicates are collapsed) and
+# must return a single structured story — NOT a "Source X says…" list.
+ASK_PROMPT_NP = """तपाईं Samachar AI हुनुहुन्छ — विशेषज्ञ, तटस्थ नेपाली समाचार सम्पादक।
+तल विभिन्न नेपाली स्रोतहरूले रिपोर्ट गरेका समाचार विषयअनुसार समूहबद्ध गरिएका छन् (एउटै घटना धेरै स्रोतले रिपोर्ट गरेको हुन सक्छ)।
 
-नियमहरू:
-- तल दिइएका स्रोतहरूमा आधारित भएर मात्र रिपोर्ट गर्नुहोस् — कहिल्यै तथ्य वा तथ्याङ्क नबनाउनुहोस्।
-- वर्तमान कालमा, स्पष्ट र विवेकशील रिपोर्टरको शैलीमा ४-६ वाक्यमा लेख्नुहोस्।
-- स्रोतहरूबीच मतभेद भए "केही स्रोतका अनुसार… अरूका अनुसार…" भनी सन्तुलित रूपमा देखाउनुहोस्।
-- कुनै पक्ष नलिनुहोस्; तथ्यमा अडिग रहनुहोस्।
-- स्रोतमा जानकारी नभए स्पष्ट भन्नुहोस्।
+प्रयोगकर्ताको प्रश्नसँग सबैभन्दा सम्बन्धित विषय छानेर एउटै सफा, संरचित समाचार स्टोरी तयार गर्नुहोस्।
+"अमुकका अनुसार… अर्कोका अनुसार…" भनी स्रोतको सूची नबनाउनुहोस् — सबै स्रोतका तथ्य मिलाएर एउटै कथा लेख्नुहोस्।
 
-इन्टरनेटबाट सङ्कलित स्रोतहरू:
+केवल यो JSON फर्काउनुहोस् (अन्य केही नलेख्नुहोस्):
+{{
+  "headline":    "<आकर्षक तर तथ्यपरक शीर्षक, नेपालीमा>",
+  "summary":     "<वर्तमान कालमा ३-४ वाक्यको तटस्थ सारांश, दोहोरो नपारी, नेपालीमा>",
+  "why_matters": "<एक वाक्य — यो नागरिक, अर्थतन्त्र वा राजनीतिका लागि किन महत्त्वपूर्ण छ>",
+  "sources":     ["<प्रयोग गरिएका प्रकाशनहरूको नाम>"]
+}}
+
+नियम: तल दिइएका तथ्यमा मात्र आधारित हुनुहोस्, कुनै तथ्य वा तथ्याङ्क नबनाउनुहोस्। पक्ष नलिनुहोस्।
+प्रश्नसँग सम्बन्धित जानकारी नभए summary मा स्पष्ट रूपमा भन्नुहोस्।
+
+समूहबद्ध समाचार:
 {context}
 
-प्रयोगकर्ताको प्रश्न: {question}
+प्रश्न: {question}"""
 
-अन्तमा ठ्याक्कै यो लाइन राख्नुहोस्: SOURCES: <प्रयोग गरिएका प्रकाशनहरूको नाम, comma separated>"""
+ASK_PROMPT_EN = """You are Samachar AI — an expert, impartial Nepali news editor.
+Below is coverage from multiple Nepali outlets, already grouped by topic (the same event may be reported by several outlets).
 
-ASK_PROMPT_EN = """You are Samachar AI — an expert, impartial, rational Nepali news reporter.
-You have just gathered information from multiple Nepali sources across the internet (provided below).
+Pick the topic most relevant to the user's question and produce ONE clean, structured news story.
+Do NOT write a "Source X says… Source Y says…" list — merge the facts from all outlets into a single story.
 
-Rules:
-- Report ONLY from the sources below — never fabricate facts or statistics.
-- Write in present tense, 4-6 sentences, like a clear and rational reporter.
-- If sources disagree, show it in a balanced way ("according to some sources… while others…").
-- Take no side; stay grounded in the facts.
-- If the sources don't cover it, say so plainly.
+Return ONLY this JSON (nothing else):
+{{
+  "headline":    "<engaging but factual headline>",
+  "summary":     "<a neutral 3-4 sentence summary in present tense, no repetition>",
+  "why_matters": "<one sentence — why this matters for people, the economy or politics>",
+  "sources":     ["<names of the publications used>"]
+}}
 
-Sources gathered from the internet:
+Rules: rely ONLY on the facts below — never fabricate facts or statistics. Take no side.
+If nothing relevant is covered, say so plainly in the summary.
+
+Grouped coverage:
 {context}
 
-User question: {question}
-
-End with exactly: SOURCES: <names of the publications you used, comma separated>"""
+Question: {question}"""
 
 
-def _build_context(local_articles, web_results):
-    """Compose a grounding context block from local + live-web material."""
+# ── "Why it matters" — deterministic impact reasoning ────────────
+# Detects the dominant theme of a story and states a concrete impact, so even
+# without an LLM the answer explains significance instead of just describing.
+_WHY_THEMES = [
+    (('कर', 'मूल्य', 'शुल्क', 'महँगो', 'बजेट', 'रोयल्टी', 'भाडा', 'राजस्व',
+      'tax', 'price', 'fee', 'fare', 'cost', 'royalty', 'budget', 'revenue'),
+     'यसले व्यवसायको लागत, उपभोक्ताको खर्च र सरकारी राजस्वमा प्रत्यक्ष असर पार्छ।',
+     'It directly affects business costs, consumer spending and government revenue.'),
+    (('नेप्से', 'शेयर', 'बजार', 'बैंक', 'ब्याज', 'लगानी', 'मुद्रा', 'रेमिट्यान्स',
+      'nepse', 'stock', 'market', 'bank', 'interest', 'investment', 'remittance'),
+     'यसले लगानीकर्ता, बजार र समग्र अर्थतन्त्रको गतिमा असर पार्छ।',
+     'It affects investors, the market and the wider economy.'),
+    (('बाढी', 'पहिरो', 'भूकम्प', 'दुर्घटना', 'आगलागी', 'मृत्यु', 'घाइते', 'विपद्',
+      'flood', 'landslide', 'quake', 'accident', 'fire', 'disaster', 'casualt'),
+     'यसले प्रभावित समुदायको सुरक्षा र जनधनको जोखिमसँग प्रत्यक्ष जोडिएको छ।',
+     'It is directly tied to public safety and the risk to lives and property.'),
+    (('सरकार', 'प्रधानमन्त्री', 'मन्त्री', 'संसद', 'दल', 'निर्वाचन', 'अध्यादेश',
+      'government', 'minister', 'parliament', 'election', 'ordinance', 'cabinet'),
+     'यसले देशको राजनीतिक स्थायित्व र आगामी नीति-निर्माणमा प्रभाव पार्छ।',
+     "It shapes the country's political stability and upcoming policy decisions."),
+    (('रोजगार', 'तलब', 'श्रमिक', 'गरिब', 'राहत', 'स्वास्थ्य', 'शिक्षा', 'किसान',
+      'job', 'salary', 'worker', 'relief', 'health', 'education', 'farmer'),
+     'यसले आम नागरिकको रोजगारी, आम्दानी र दैनिक जीवनमा सोझो असर पार्छ।',
+     'It has a direct impact on ordinary people’s jobs, income and daily life.'),
+    (('कानुन', 'नीति', 'नियम', 'प्रतिबन्ध', 'अदालत', 'फैसला', 'नियमन',
+      'law', 'policy', 'rule', 'ban', 'court', 'verdict', 'regulation'),
+     'यो नीतिगत निर्णयले सम्बन्धित क्षेत्र र नागरिकका दैनिक व्यवहारमा असर पार्छ।',
+     'This policy decision affects the sector involved and people’s daily dealings.'),
+]
+
+
+def _why_matters(text, lang='np'):
+    blob = (text or '').lower()
+    for keys, np_phrase, en_phrase in _WHY_THEMES:
+        if any(k in blob for k in keys):
+            return np_phrase if lang == 'np' else en_phrase
+    return ('यो विषयले सम्बन्धित नागरिक र क्षेत्रलाई प्रत्यक्ष असर पार्ने भएकाले महत्त्वपूर्ण छ।'
+            if lang == 'np'
+            else 'This matters because it directly affects the people and sector involved.')
+
+
+def _format_story(story, others, lang='np'):
+    """Render a story dict into a clean, structured display string."""
+    head = (story.get('headline') or '').strip()
+    summ = (story.get('summary') or '').strip()
+    why = (story.get('why_matters') or '').strip()
+    out = []
+    if head:
+        out.append(head)
+    if summ:
+        if out:
+            out.append('')
+        out.append(summ)
+    if why:
+        out.append('')
+        out.append('📌 किन महत्त्वपूर्ण' if lang == 'np' else '📌 Why it matters')
+        out.append(why)
+    if others:
+        out.append('')
+        out.append('🗞️ अन्य मुख्य समाचार' if lang == 'np' else '🗞️ Other top stories')
+        for h in others[:3]:
+            out.append('• ' + h)
+    return '\n'.join(out).strip()
+
+
+def _clusters_to_context(clusters, lang='np'):
+    """Render topic clusters into a de-duplicated grounding block for the LLM."""
+    if not clusters:
+        return 'कुनै सन्दर्भ उपलब्ध छैन।' if lang == 'np' else 'No context available.'
     lines = []
-    if web_results:
-        lines.append('— इन्टरनेटबाट (LIVE WEB) —')
-        for r in web_results[:8]:
-            ft = r.get('fulltext')
-            base = f"• [{r.get('source','')}] {r.get('title','')}"
-            if r.get('snippet'):
-                base += f" — {r['snippet']}"
-            lines.append(base)
-            if ft:
-                lines.append(f"   विवरण: {ft[:600]}")
-    if local_articles:
-        lines.append('— समाचार आर्काइभ (LOCAL) —')
-        for a in local_articles[:8]:
-            lines.append(f"• [{a.get('source','')}] {a.get('title','')} — {a.get('dek','')}")
-    return '\n'.join(lines) if lines else 'कुनै सन्दर्भ उपलब्ध छैन।'
+    for i, c in enumerate(clusters[:6], 1):
+        srcs = ', '.join(c['sources'][:5]) or ('विविध' if lang == 'np' else 'various')
+        lines.append(f"[{i}] {c['headline']}  — {c['size']} स्रोत ({srcs})")
+        if c.get('summary'):
+            lines.append(f"    {c['summary'][:500]}")
+    return '\n'.join(lines)
+
+
+def _structured_from_clusters(clusters, lang='np'):
+    """
+    Build a structured story (headline + merged summary + why-it-matters +
+    sources) from the dominant topic cluster, with other clusters listed as
+    brief one-liners. Used when no LLM is available — deterministic, grounded.
+    Returns (story, others, sources) or None.
+    """
+    if not clusters:
+        return None
+    top = clusters[0]
+    if not top.get('headline') and not top.get('summary'):
+        return None
+    why = _why_matters(f"{top.get('headline','')} {top.get('summary','')}", lang)
+    story = {
+        'headline':    top.get('headline', ''),
+        'summary':     top.get('summary', '') or top.get('headline', ''),
+        'why_matters': why,
+    }
+    others = [c['headline'] for c in clusters[1:4] if c.get('headline')]
+    srcs = list(top.get('sources', []))
+    for c in clusters[1:4]:
+        for s in c.get('sources', []):
+            if s not in srcs:
+                srcs.append(s)
+    return story, others, srcs[:6]
 
 
 def answer_question(question, lang='np', context_articles=None, use_web=True):
     """
-    Answer a Nepal news question as a rational reporter.
+    Answer a Nepal news question as a news EDITOR, not an aggregator.
 
-    When `use_web` is set, gathers live coverage from across the internet
-    (RAG grounding) and blends it with the local archive before reasoning.
-    Returns {answer, sources, related} where `related` are web result cards
-    ({title, source, url}) so the UI can show real, clickable provenance.
+    Pipeline: gather live web coverage + our Qdrant archive → CLUSTER into one
+    story per topic (dedup) → either have the LLM write a structured story from
+    the clustered context, or compose one deterministically. Returns
+    {answer, sources, related}; `related` are de-duplicated provenance cards
+    (one per story) so the UI shows real, clickable sources without repetition.
     """
     # 1) Serve from cache when we've recently answered the same question.
     cache_key = _ai_cache_key(question, lang)
@@ -474,121 +573,77 @@ def answer_question(question, lang='np', context_articles=None, use_web=True):
     if cached:
         return cached
 
-    web_results = []
-    if use_web:
-        web_results = web_research(question, limit=8, deep=2)
+    web_results = web_research(question, limit=10, deep=2) if use_web else []
+    archive = _archive_research(question, limit=6)
 
-    # 2) Pull semantically-similar articles from OUR archive (Qdrant RAG) and
-    #    blend them with any caller-supplied context for richer grounding.
-    archive = _archive_research(question, limit=5)
-    local = list(context_articles or []) + archive
+    # 2) Cluster the query-relevant coverage so the SAME story from many outlets
+    #    collapses into one. If we gathered nothing, digest the latest feed.
+    try:
+        import cluster as _cluster
+        gathered = (web_results or []) + (archive or [])
+        if not gathered:
+            gathered = context_articles or []
+        clusters = _cluster.cluster_items(gathered)
+    except Exception as e:
+        print(f'[AI] clustering failed: {e}')
+        clusters = []
 
-    context = _build_context(local, web_results)
+    # 3) De-duplicated provenance cards — one per story (web leads carry URLs).
+    related = []
+    seen_urls = set()
+    for c in clusters:
+        url = (c['lead'].get('url') or '').strip()
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            related.append({'title': c['headline'],
+                            'source': c['lead'].get('source', ''), 'url': url})
+    related = related[:6]
 
+    # 4) Ask the model for a structured story from the clustered context.
+    context = _clusters_to_context(clusters, lang)
     prompt_template = ASK_PROMPT_NP if lang == 'np' else ASK_PROMPT_EN
     prompt = prompt_template.format(context=context, question=question)
-
-    # 3) Route: Nepali prose → Gemini only (extractive fallback if down);
-    #    English → Gemini then Groq fallback.
     if lang == 'np':
-        raw = llm.generate(prompt, max_tokens=900, nepali=True)
+        raw = llm.gemini_chat(prompt, max_tokens=900)            # Nepali → Gemini only
     else:
         raw = llm.generate(prompt, max_tokens=900, nepali=False, allow_groq=True)
 
-    # Web result cards (provenance) for the UI, regardless of model success.
-    related = [
-        {'title': r.get('title', ''), 'source': r.get('source', ''), 'url': r.get('url', '')}
-        for r in web_results[:6] if r.get('title')
-    ]
+    data = _extract_json(raw) if raw else None
+    # Reject broken Nepali output (e.g. Groq Devanagari) so we fall to extractive.
+    if data and lang == 'np' and not _has_devanagari(str(data.get('summary', ''))):
+        data = None
 
-    if raw:
-        parts = re.split(r'SOURCES\s*:', raw, maxsplit=1, flags=re.IGNORECASE)
-        answer = parts[0].strip()
-        sources = []
-        if len(parts) > 1:
-            raw_sources = parts[1].split('\n')[0]
-            sources = [s.strip().strip('.,।') for s in raw_sources.split(',') if s.strip()]
-        # Prefer real source names from the web research when the model is vague.
-        if not sources and web_results:
-            seen = []
-            for r in web_results:
-                s = r.get('source')
-                if s and s not in seen:
-                    seen.append(s)
-            sources = seen[:4]
-        if not sources:
-            sources = ['OnlineKhabar', 'Kantipur']
-        result = {'answer': answer, 'sources': sources[:5], 'related': related}
+    if data and str(data.get('summary', '')).strip():
+        others = [c['headline'] for c in clusters[1:4] if c.get('headline')]
+        srcs = [str(s).strip() for s in (data.get('sources') or []) if str(s).strip()][:6]
+        if not srcs and clusters:
+            srcs = clusters[0]['sources'][:5]
+        story = {
+            'headline':    str(data.get('headline', '')).strip()
+                           or (clusters[0]['headline'] if clusters else ''),
+            'summary':     str(data.get('summary', '')).strip(),
+            'why_matters': str(data.get('why_matters', '')).strip()
+                           or _why_matters(str(data.get('summary', '')), lang),
+        }
+        result = {'answer': _format_story(story, others, lang),
+                  'sources': srcs or ['samachar.ai'], 'related': related}
         _cache_set(cache_key, result, ttl_seconds=21600)   # 6h
         return result
 
-    # Gemini unavailable (rate-limited). If we still gathered any coverage —
-    # live web OR our own Qdrant archive — return an EXTRACTIVE answer grounded
-    # in the real snippets, far better than a canned number, so the RAG
-    # reporter stays useful without an LLM.
-    grounding = web_results + archive
-    if grounding:
-        extractive = _extractive_answer(question, grounding, lang)
-        if extractive:
-            srcs = []
-            for r in grounding:
-                s = r.get('source')
-                if s and s not in srcs:
-                    srcs.append(s)
-            result = {
-                'answer': extractive,
-                'sources': srcs[:5] or ['samachar.ai'],
-                'related': related,
-            }
-            # Short TTL: extractive answers should refresh as coverage moves.
-            _cache_set(cache_key, result, ttl_seconds=3600)   # 1h
-            return result
+    # 5) No LLM (quota) → deterministic structured story from the clusters.
+    structured = _structured_from_clusters(clusters, lang)
+    if structured:
+        story, others, srcs = structured
+        result = {'answer': _format_story(story, others, lang),
+                  'sources': srcs or ['samachar.ai'], 'related': related}
+        _cache_set(cache_key, result, ttl_seconds=3600)    # 1h
+        return result
 
     fb = _keyword_fallback(question)
     if related:
         fb['related'] = related
         fb['sources'] = [r['source'] for r in related[:3] if r.get('source')] or fb['sources']
     return fb
-
-
-def _extractive_answer(question, web_results, lang='np'):
-    """
-    Compose a grounded answer from live web coverage without an LLM.
-
-    Used when the Gemini quota is exhausted: we summarize what the gathered
-    Nepali sources are actually reporting, in the reporter's voice, citing the
-    real publications. Returns '' if there's nothing usable.
-    """
-    bits = []
-    seen = set()
-    for r in web_results[:5]:
-        src = (r.get('source') or '').strip()
-        title = (r.get('title') or '').strip()
-        snip = (r.get('snippet') or '').strip()
-        line = snip or title
-        # Google News appends the publisher name to snippets — drop the dupe.
-        if src and line.endswith(src):
-            line = line[:-len(src)].strip(' -–—|')
-        if not line:
-            continue
-        key = line[:50].lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        if src:
-            bits.append(f'{src} का अनुसार, {line}।' if lang == 'np'
-                        else f'According to {src}, {line}.')
-        else:
-            bits.append(f'{line}।' if lang == 'np' else f'{line}.')
-        if len(bits) >= 4:
-            break
-    if not bits:
-        return ''
-    if lang == 'np':
-        intro = 'इन्टरनेटभरिका नेपाली स्रोतहरूका अनुसार हालको अवस्था यस्तो छ: '
-    else:
-        intro = 'Based on current reporting from Nepali sources across the internet: '
-    return intro + ' '.join(bits)
 
 
 def local_area_summary(address, articles=None):

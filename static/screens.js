@@ -1303,7 +1303,7 @@ const AiChatScreen = ({ go }) => {
               background: m.role === 'user' ? 'var(--ink-1)' : m.role === 'system' ? 'var(--accent-soft)' : 'var(--bg-elev)',
               color: m.role === 'user' ? 'var(--bg-elev)' : m.role === 'system' ? 'var(--accent)' : 'var(--ink-1)',
               border: m.role === 'ai' ? '1px solid var(--rule)' : 'none',
-              fontSize: 14, lineHeight: 1.6,
+              fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap',
               fontFamily: m.role !== 'user' ? 'var(--serif)' : 'var(--sans)',
             }}>
               {m.role === 'ai' && (
