@@ -142,6 +142,14 @@ CREATE TABLE IF NOT EXISTS scrape_log (
   sources_err TEXT,
   new_articles INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS ai_cache (
+  cache_key   TEXT PRIMARY KEY,
+  value       TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_ai_cache_expires ON ai_cache(expires_at);
 """
 
 # Columns added after initial schema — safe to run on existing DB
@@ -185,6 +193,52 @@ def init_db():
 
 def now():
     return int(time.time())
+
+
+# ── AI answer cache ──────────────────────────────────────────────
+# Caches expensive AI/LLM results (keyed by a hash of the question+lang) so
+# repeated questions don't re-burn LLM quota. Values are JSON strings.
+
+def cache_get(key):
+    """Return the cached JSON-decoded value for `key`, or None if missing/expired."""
+    import json
+    conn = get_db()
+    try:
+        row = conn.execute(
+            'SELECT value, expires_at FROM ai_cache WHERE cache_key = ?', (key,)
+        ).fetchone()
+        if not row:
+            return None
+        if row['expires_at'] and row['expires_at'] < now():
+            conn.execute('DELETE FROM ai_cache WHERE cache_key = ?', (key,))
+            conn.commit()
+            return None
+        try:
+            return json.loads(row['value'])
+        except Exception:
+            return None
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
+def cache_set(key, value, ttl_seconds=86400):
+    """Store JSON-serializable `value` under `key` with an optional TTL."""
+    import json
+    conn = get_db()
+    try:
+        expires = now() + ttl_seconds if ttl_seconds else None
+        conn.execute(
+            'INSERT OR REPLACE INTO ai_cache (cache_key, value, created_at, expires_at) '
+            'VALUES (?, ?, ?, ?)',
+            (key, json.dumps(value, ensure_ascii=False), now(), expires),
+        )
+        conn.commit()
+    except Exception as e:
+        print(f'[db] cache_set failed: {e}')
+    finally:
+        conn.close()
 
 
 def row_to_dict(row):

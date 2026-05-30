@@ -1,5 +1,10 @@
 """
-AI engine for samachar.ai — Google Gemini via google-genai SDK.
+AI engine for samachar.ai — orchestration over the llm.py provider router.
+
+Generation is routed through llm.py (Gemini for Nepali prose, Groq for
+English/structured, gemini-embedding-001 for vectors). Question answering
+grounds itself in live web research (websearch.py) + our own archive via
+Qdrant semantic search (vectorstore.py), and caches answers in SQLite.
 
 Functions
 ---------
@@ -7,127 +12,27 @@ answer_question(question, lang, context_articles) → {answer, sources, related}
 summarize_article(title, text, source_name)       → enriched article dict
 local_area_summary(address, articles)             → {answer, sources}
 """
-import os
 import re
 import json
-import threading
+import hashlib
 
-# ── Gemini setup ─────────────────────────────────────────────────
-GEMINI_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyBcqNqnwS8-lRg203CWMd71diAyUL2_bbU')
-
-# Model priority list — best free-tier quota first
-# gemini-2.0-flash-lite: 30 RPM / 1500 RPD (free) ← best for batch processing
-# gemini-2.0-flash:      15 RPM / 1500 RPD (free) ← good for chat
-# gemini-2.5-flash:       5 RPM /  500 RPD (free) ← powerful but slow quota
-# gemini-1.5-flash-8b:   15 RPM / 1500 RPD (free) ← lightweight fallback
-GEMINI_MODELS = [
-    'models/gemini-2.0-flash-lite',   # 30 RPM free — primary
-    'models/gemini-2.0-flash',        # 15 RPM free — fallback
-    'models/gemini-2.5-flash',        # 5 RPM free  — separate quota pool
-]
-
-_genai_client = None
-_model_index   = 0          # which model in GEMINI_MODELS we're currently using
-_model_lock    = threading.Lock()
-
-# Per-model cooldown tracking (model → timestamp when quota resets)
-import time as _time
-_model_cooldown = {}  # model → epoch when safe to retry
-
-
-def _init_client():
-    """Create the genai Client once."""
-    global _genai_client
-    if _genai_client is None:
-        try:
-            from google import genai
-            _genai_client = genai.Client(api_key=GEMINI_KEY)
-        except Exception as e:
-            print(f'[AI] Gemini init failed: {e}')
-            _genai_client = 'FAILED'
-    return _genai_client
-
-
-def _current_model():
-    return GEMINI_MODELS[_model_index % len(GEMINI_MODELS)]
-
-
-def _advance_model(bad_model):
-    """Rotate to the next model after a failure on bad_model."""
-    global _model_index
-    with _model_lock:
-        # Only advance if we're still using the model that failed
-        if _current_model() == bad_model:
-            _model_index += 1
-            if _model_index >= len(GEMINI_MODELS):
-                _model_index = 0   # wrap around
-            print(f'[AI] Switched to model: {_current_model()}')
+# ── LLM provider layer ───────────────────────────────────────────
+# All model access goes through llm.py (the "3-layer AI stack" router):
+#   • Gemini  — premium Nepali Devanagari prose
+#   • Groq    — cheap/fast English + structured JSON (never Nepali prose)
+#   • embed() — gemini-embedding-001, powering Qdrant vector RAG
+# No API keys live in this file — llm.py reads them from the environment.
+import llm
 
 
 def _gemini(prompt, max_tokens=800):
     """
-    Call Gemini and return text.
-    On 429 rate-limit, automatically advances to next model and retries once.
-    Returns None only if all retries fail.
+    Gemini-only generation (model rotation + cooldown handled in llm.py).
+    Used where output must be quality Nepali (summaries, Nepali answers):
+    returns None when Gemini is unavailable so the caller falls back to a
+    deterministic heuristic / extractive path rather than broken Groq Nepali.
     """
-    client = _init_client()
-    if client == 'FAILED' or client is None:
-        return None
-
-    try:
-        from google.genai import types
-    except ImportError:
-        return None
-
-    # Try current model, then fall back through the list once
-    tried = set()
-    for attempt in range(len(GEMINI_MODELS) + 1):
-        model = _current_model()
-        if model in tried:
-            break
-        tried.add(model)
-
-        # Skip if this model is in cooldown
-        cooldown_until = _model_cooldown.get(model, 0)
-        if _time.time() < cooldown_until:
-            _advance_model(model)
-            continue
-
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.3,
-                    max_output_tokens=max_tokens,
-                ),
-            )
-            # Success — make sure we record this model as active
-            if attempt > 0:
-                print(f'[AI] Success with fallback model: {model}')
-            return response.text
-
-        except Exception as e:
-            err = str(e)
-            if '429' in err or 'RESOURCE_EXHAUSTED' in err:
-                # Put model in cooldown (60 s default, or retry-delay from error)
-                delay = 65
-                m = re.search(r'retryDelay["\s:]+(\d+)', err)
-                if m:
-                    delay = int(m.group(1)) + 5
-                _model_cooldown[model] = _time.time() + delay
-                print(f'[AI] {model} rate-limited — cooldown {delay}s, trying next model…')
-                _advance_model(model)
-            elif '404' in err or 'NOT_FOUND' in err:
-                print(f'[AI] {model} not available — switching model…')
-                _advance_model(model)
-            else:
-                # Non-rate-limit error (auth, network, etc.) — log and give up
-                print(f'[AI] Gemini call error: {e}')
-                return None
-
-    print('[AI] All Gemini models rate-limited or unavailable.')
-    return None
+    return llm.gemini_chat(prompt, max_tokens=max_tokens)
 
 
 def _extract_json(text):
@@ -204,7 +109,8 @@ def expand_query(q):
         '{"devanagari": "<query in Nepali Devanagari script>", '
         '"english": "<2-5 English keywords>"}'
     )
-    raw = _gemini(prompt, max_tokens=120)
+    # Structured JSON (not prose) → Groq may answer when Gemini is exhausted.
+    raw = llm.generate(prompt, max_tokens=120, nepali=False, allow_groq=True)
     data = _extract_json(raw) or {}
     g_dev = str(data.get('devanagari', '')).strip()
     g_eng = str(data.get('english', '')).strip()
@@ -302,6 +208,48 @@ def web_research(query, limit=8, deep=2):
             if txt:
                 r['fulltext'] = txt
     return results
+
+
+# ── Archive RAG (Qdrant) + answer cache ──────────────────────────
+
+def _archive_research(query, limit=5):
+    """
+    Semantic-search OUR own enriched archive via Qdrant and return article-like
+    dicts ({source, title, dek}) for grounding. Best-effort: [] if unavailable.
+    """
+    try:
+        import vectorstore
+        hits = vectorstore.search(query, limit=limit)
+    except Exception as e:
+        print(f'[AI] archive research unavailable: {e}')
+        return []
+    return [
+        {'source': h.get('source', ''), 'title': h.get('title', ''),
+         'dek': h.get('dek', '')}
+        for h in hits if h.get('title')
+    ]
+
+
+def _ai_cache_key(question, lang):
+    norm = ' '.join((question or '').lower().split())
+    raw = f'{lang}|{norm}'
+    return 'ai:' + hashlib.sha1(raw.encode('utf-8')).hexdigest()
+
+
+def _cache_get(key):
+    try:
+        import db
+        return db.cache_get(key)
+    except Exception:
+        return None
+
+
+def _cache_set(key, value, ttl_seconds=21600):
+    try:
+        import db
+        db.cache_set(key, value, ttl_seconds=ttl_seconds)
+    except Exception:
+        pass
 
 
 # ── Bias engine ──────────────────────────────────────────────────
@@ -517,16 +465,32 @@ def answer_question(question, lang='np', context_articles=None, use_web=True):
     Returns {answer, sources, related} where `related` are web result cards
     ({title, source, url}) so the UI can show real, clickable provenance.
     """
+    # 1) Serve from cache when we've recently answered the same question.
+    cache_key = _ai_cache_key(question, lang)
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
     web_results = []
     if use_web:
         web_results = web_research(question, limit=8, deep=2)
 
-    context = _build_context(context_articles or [], web_results)
+    # 2) Pull semantically-similar articles from OUR archive (Qdrant RAG) and
+    #    blend them with any caller-supplied context for richer grounding.
+    archive = _archive_research(question, limit=5)
+    local = list(context_articles or []) + archive
+
+    context = _build_context(local, web_results)
 
     prompt_template = ASK_PROMPT_NP if lang == 'np' else ASK_PROMPT_EN
     prompt = prompt_template.format(context=context, question=question)
 
-    raw = _gemini(prompt, max_tokens=900)
+    # 3) Route: Nepali prose → Gemini only (extractive fallback if down);
+    #    English → Gemini then Groq fallback.
+    if lang == 'np':
+        raw = llm.generate(prompt, max_tokens=900, nepali=True)
+    else:
+        raw = llm.generate(prompt, max_tokens=900, nepali=False, allow_groq=True)
 
     # Web result cards (provenance) for the UI, regardless of model success.
     related = [
@@ -551,7 +515,9 @@ def answer_question(question, lang='np', context_articles=None, use_web=True):
             sources = seen[:4]
         if not sources:
             sources = ['OnlineKhabar', 'Kantipur']
-        return {'answer': answer, 'sources': sources[:5], 'related': related}
+        result = {'answer': answer, 'sources': sources[:5], 'related': related}
+        _cache_set(cache_key, result, ttl_seconds=21600)   # 6h
+        return result
 
     # Gemini unavailable (rate-limited). If we still gathered live coverage,
     # return an EXTRACTIVE answer grounded in the real snippets — far better
@@ -564,11 +530,14 @@ def answer_question(question, lang='np', context_articles=None, use_web=True):
                 s = r.get('source')
                 if s and s not in srcs:
                     srcs.append(s)
-            return {
+            result = {
                 'answer': extractive,
                 'sources': srcs[:5] or ['samachar.ai'],
                 'related': related,
             }
+            # Short TTL: extractive answers should refresh as coverage moves.
+            _cache_set(cache_key, result, ttl_seconds=3600)   # 1h
+            return result
 
     fb = _keyword_fallback(question)
     if related:

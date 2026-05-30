@@ -410,6 +410,21 @@ def _ai_enrich(conn, art_id, entry, source, full_text=None, np_title=None):
             art_id,
         ))
         conn.commit()
+
+        # Index into the Qdrant vector store for archive RAG (best-effort).
+        try:
+            import vectorstore
+            vectorstore.index_article({
+                'id':         art_id,
+                'title':      title,
+                'dek':        enriched['dek'],
+                'why_matters': enriched['why_matters'],
+                'source':     source['name'],
+                'tag':        enriched['tag'],
+                'category':   enriched['category'],
+            })
+        except Exception as ve:
+            print(f'[scanner] vector index skipped {art_id}: {ve}')
     except Exception as e:
         print(f'[scanner] AI enrich failed {art_id}: {e}')
         try:
