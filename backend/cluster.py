@@ -41,15 +41,20 @@ _STOP = {
     'new', 'says', 'said', 'news', 'latest', 'update', 'report', 'reports',
 }
 
-_WORD = re.compile(r'[\wऀ-ॿ]+', re.UNICODE)
+# Match word characters + the Devanagari letter block, but NOT the danda
+# punctuation (।=U+0964, ॥=U+0965) which sits inside the block — otherwise
+# "वृद्धि।" and "वृद्धि" become different tokens and same-story overlap breaks.
+_WORD = re.compile(r'[\wऀ-ॣ०-ॿ]+', re.UNICODE)
+_PUNCT = re.compile(r'[।॥]')
 
 
 def _tokens(text):
     """Content tokens of a string: lowercased, stop-words and noise removed."""
     if not text:
         return set()
+    text = _PUNCT.sub(' ', text.lower())
     out = set()
-    for t in _WORD.findall(text.lower()):
+    for t in _WORD.findall(text):
         if len(t) < 2 or t in _STOP or t.isdigit():
             continue
         out.add(t)
