@@ -225,7 +225,10 @@ def _archive_research(query, limit=5):
         return []
     return [
         {'source': h.get('source', ''), 'title': h.get('title', ''),
-         'dek': h.get('dek', '')}
+         'dek': h.get('dek', ''),
+         # 'snippet' lets the extractive fallback reuse archive material when
+         # the LLM is down and there are no live web results.
+         'snippet': h.get('dek', ''), 'url': ''}
         for h in hits if h.get('title')
     ]
 
@@ -519,14 +522,16 @@ def answer_question(question, lang='np', context_articles=None, use_web=True):
         _cache_set(cache_key, result, ttl_seconds=21600)   # 6h
         return result
 
-    # Gemini unavailable (rate-limited). If we still gathered live coverage,
-    # return an EXTRACTIVE answer grounded in the real snippets — far better
-    # than a canned number — so the RAG reporter stays useful without an LLM.
-    if web_results:
-        extractive = _extractive_answer(question, web_results, lang)
+    # Gemini unavailable (rate-limited). If we still gathered any coverage —
+    # live web OR our own Qdrant archive — return an EXTRACTIVE answer grounded
+    # in the real snippets, far better than a canned number, so the RAG
+    # reporter stays useful without an LLM.
+    grounding = web_results + archive
+    if grounding:
+        extractive = _extractive_answer(question, grounding, lang)
         if extractive:
             srcs = []
-            for r in web_results:
+            for r in grounding:
                 s = r.get('source')
                 if s and s not in srcs:
                     srcs.append(s)
