@@ -146,13 +146,13 @@ def cluster_items(items, threshold=None):
     the most informative item as its `lead` and a merged, de-duplicated source
     list + summary so callers can render "one story → many sources".
     """
-    clusters = []   # each: {'tokens', 'items'}
-    for item in items or []:
+    clusters = []   # each: {'tokens', 'items', 'order'}
+    for idx, item in enumerate(items or []):
         title = item.get('title', '')
         toks = _tokens(_clean_title(title) + ' ' + (item.get('snippet') or item.get('dek') or ''))
         if not toks:
             # Untokenizable — keep as its own singleton so we don't drop it.
-            clusters.append({'tokens': set(), 'items': [item]})
+            clusters.append({'tokens': set(), 'items': [item], 'order': idx})
             continue
         placed = False
         for c in clusters:
@@ -163,7 +163,7 @@ def cluster_items(items, threshold=None):
                 placed = True
                 break
         if not placed:
-            clusters.append({'tokens': set(toks), 'items': [item]})
+            clusters.append({'tokens': set(toks), 'items': [item], 'order': idx})
 
     out = []
     for c in clusters:
@@ -181,11 +181,14 @@ def cluster_items(items, threshold=None):
             'items':    members,
             'sources':  sources,
             'size':     len(members),
+            'order':    c['order'],
             'headline': _clean_title(lead.get('title', '')),
             'summary':  _build_summary(members),
             'tokens':   c['tokens'],
         })
 
-    # Most-covered stories first (more outlets ⇒ more newsworthy), then richer.
-    out.sort(key=lambda c: (c['size'], len(c['summary'])), reverse=True)
+    # Preserve the caller's RELEVANCE order (web search + Qdrant return items
+    # best-match first): the cluster holding the most-relevant item leads. Among
+    # equally-relevant clusters, more outlets (newsworthiness) then richer text.
+    out.sort(key=lambda c: (c['order'], -c['size'], -len(c['summary'])))
     return out
