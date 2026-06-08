@@ -16,20 +16,10 @@
   --info-soft:    #EAEFF5;
   --warn:         #8A5A1C;
   --warn-soft:    #F6EEDF;
-  --serif: "ARAP BK", "Noto Serif Devanagari", "Source Serif 4", "Iowan Old Style", Georgia, serif;
-  --sans:  "ARAP BK", "Noto Serif Devanagari", "Manrope", -apple-system, system-ui, sans-serif;
+  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --sans:  "Manrope", -apple-system, system-ui, sans-serif;
   --mono:  "JetBrains Mono", ui-monospace, monospace;
-  --deva:  "ARAP BK", "Noto Serif Devanagari", var(--serif);
-}
-
-/* App brand/display font. Latin glyphs render in ARAP BK; any glyph it lacks
-   (e.g. Devanagari) falls through to Noto Serif Devanagari automatically. */
-@font-face {
-  font-family: "ARAP BK";
-  src: url("/fonts/arap-bk.ttf") format("truetype");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
+  --deva:  "Noto Serif Devanagari", var(--serif);
 }
 [data-theme="dark"] {
   --bg: #14140F; --bg-elev: #1B1B16; --bg-sunk: #100F0B;
