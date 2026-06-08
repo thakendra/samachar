@@ -558,11 +558,7 @@ def _conversational_from_clusters(clusters, question, lang='np'):
         else:
             parts.append(f'Also making headlines: {h}.')
 
-    answer = ' '.join(p for p in parts if p).strip()
-    if lang == 'np' and not _has_devanagari(answer):
-        # Source coverage was English-only; keep it but it's fine for en too.
-        pass
-    return answer
+    return ' '.join(p for p in parts if p).strip()
 
 
 def answer_question(question, lang='np', context_articles=None, use_web=True):
