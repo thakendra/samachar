@@ -14,9 +14,36 @@ const App = () => {
   // ── boot: load session ──
   React.useEffect(() => {
     API.me()
-      .then(u => { setUser(u); if (u) loadInitialState(); })
+      .then(u => { setUser(u); if (u) { loadInitialState(); detectLocation(); } })
       .catch(() => setUser(null));
   }, []);
+
+  // ── real location: browser geolocation → reverse geocode → ward label ──
+  const detectLocation = () => {
+    const cached = localStorage.getItem('samachar_loc');
+    if (cached) setUser(u => (u ? { ...u, ward: cached } : u));
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const { latitude, longitude } = pos.coords;
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14` +
+          `&lat=${latitude}&lon=${longitude}&accept-language=ne`,
+          { headers: { Accept: 'application/json' } });
+        const d = await r.json();
+        const a = d.address || {};
+        const local  = a.suburb || a.neighbourhood || a.village || a.town ||
+                       a.city_district || a.municipality || a.city || a.county || '';
+        const region = a.city || a.county || a.state_district || a.state || '';
+        const label = [...new Set([local, region].filter(Boolean))].join(', ') ||
+                      (d.display_name ? d.display_name.split(',').slice(0, 2).join(',').trim() : '');
+        if (label) {
+          localStorage.setItem('samachar_loc', label);
+          setUser(u => (u ? { ...u, ward: label } : u));
+        }
+      } catch (e) { /* keep existing ward */ }
+    }, () => {}, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
+  };
 
   // ── apply theme + accent from user prefs ──
   React.useEffect(() => {
@@ -88,7 +115,7 @@ const App = () => {
     return (
       <IOSDevice width={402} height={874}>
         <div className="app">
-          <LoginScreen onLogin={(u) => { setUser(u); loadInitialState(); }} />
+          <LoginScreen onLogin={(u) => { setUser(u); loadInitialState(); detectLocation(); }} />
         </div>
       </IOSDevice>
     );

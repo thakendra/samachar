@@ -5,9 +5,28 @@ window.AppCtx = AppCtx;
 const useApp = () => React.useContext(AppCtx);
 window.useApp = useApp;
 
+// Live Nepal time (NPT = UTC+5:45) formatted as H:MM. Updates every 20s.
+function useNepalClock() {
+  const fmt = () => {
+    const npt = new Date(Date.now() + (5 * 60 + 45) * 60 * 1000);
+    const h = npt.getUTCHours();
+    const m = npt.getUTCMinutes();
+    return `${h}:${String(m).padStart(2, '0')}`;
+  };
+  const [t, setT] = React.useState(fmt);
+  React.useEffect(() => {
+    const id = setInterval(() => setT(fmt()), 20000);
+    return () => clearInterval(id);
+  }, []);
+  return t;
+}
+window.useNepalClock = useNepalClock;
+
 // ─────────────── iOS Device Frame ───────────────
-function IOSStatusBar({ dark = false, time = '9:41' }) {
+function IOSStatusBar({ dark = false, time }) {
   const c = dark ? '#fff' : '#000';
+  const live = useNepalClock();
+  time = time || live;
   return (
     <div style={{
       display: 'flex', gap: 154, alignItems: 'center', justifyContent: 'center',
@@ -221,9 +240,14 @@ const NewsCard = ({ article, variant = 'default' }) => {
   if (variant === 'lead') {
     return (
       <div className="card-row" style={{ paddingTop: 8 }} onClick={open}>
-        <div className="ph" style={{ aspectRatio: '16/10', borderRadius: 8 }}>
-          <div className="ph-label">{a.img_label}</div>
-        </div>
+        {a.img_url
+          ? <img src={a.img_url} alt="" loading="lazy"
+              onError={e => { e.target.style.display = 'none'; }}
+              style={{ width: '100%', aspectRatio: '16/10', objectFit: 'cover', borderRadius: 8,
+                background: 'var(--bg-sunk)' }} />
+          : <div className="ph" style={{ aspectRatio: '16/10', borderRadius: 8 }}>
+              <div className="ph-label">{a.img_label}</div>
+            </div>}
         <MetaLine items={[
           { text: a.category, color: 'var(--ink-1)' },
           { text: a.source },
@@ -247,13 +271,18 @@ const NewsCard = ({ article, variant = 'default' }) => {
           <div className="h-title" style={{ fontSize: 17, marginTop: 6, marginBottom: 6, color: 'var(--ink-1)' }}>{title}</div>
           <div className="body" style={{ fontSize: 12.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{a.dek}</div>
         </div>
-        <div className="ph" style={{ width: 92, height: 92, borderRadius: 8, flexShrink: 0 }}>
-          {a.icon && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-4)' }}>
-              <Icon name={a.icon} size={26} stroke={1.4} />
-            </div>
-          )}
-        </div>
+        {a.img_url
+          ? <img src={a.img_url} alt="" loading="lazy"
+              onError={e => { e.target.style.display = 'none'; }}
+              style={{ width: 92, height: 92, objectFit: 'cover', borderRadius: 8, flexShrink: 0,
+                background: 'var(--bg-sunk)' }} />
+          : <div className="ph" style={{ width: 92, height: 92, borderRadius: 8, flexShrink: 0 }}>
+              {a.icon && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-4)' }}>
+                  <Icon name={a.icon} size={26} stroke={1.4} />
+                </div>
+              )}
+            </div>}
       </div>
       <CardFoot a={a} bookmarked={bookmarked} onBookmark={toggleBm} onShare={share} />
     </div>

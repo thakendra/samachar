@@ -116,6 +116,29 @@ SOURCES = [
         'color':      '#6a1b9a',
         'lang':       'np',
     },
+    # ── Expanded coverage: major Nepali + English outlets ──────────────────
+    {'id': 'nayapatrika',   'name': 'Nayapatrika',     'url': 'https://www.nayapatrikadaily.com', 'rss': 'https://www.nayapatrikadaily.com/feed',   'bias': 48, 'bias_label': 'Center',       'color': '#d84315', 'lang': 'np'},
+    {'id': 'baahrakhari',   'name': 'Baahrakhari',     'url': 'https://www.baahrakhari.com',       'rss': 'https://www.baahrakhari.com/feed',        'bias': 50, 'bias_label': 'Center',       'color': '#00838f', 'lang': 'np'},
+    {'id': 'nepalpress',    'name': 'Nepal Press',     'url': 'https://nepalpress.com',            'rss': 'https://nepalpress.com/feed',             'bias': 47, 'bias_label': 'Center',       'color': '#283593', 'lang': 'np'},
+    {'id': 'makalukhabar',  'name': 'Makalu Khabar',   'url': 'https://www.makalukhabar.com',      'rss': 'https://www.makalukhabar.com/feed',       'bias': 52, 'bias_label': 'Center',       'color': '#ad1457', 'lang': 'np'},
+    {'id': 'deshsanchar',   'name': 'Desh Sanchar',    'url': 'https://www.deshsanchar.com',       'rss': 'https://www.deshsanchar.com/feed',        'bias': 50, 'bias_label': 'Center',       'color': '#558b2f', 'lang': 'np'},
+    {'id': 'khabarhub',     'name': 'Khabarhub',       'url': 'https://www.khabarhub.com',         'rss': 'https://www.khabarhub.com/feed',          'bias': 55, 'bias_label': 'Center-Right', 'color': '#1565c0', 'lang': 'np'},
+    {'id': 'lokaantar',     'name': 'Lokaantar',       'url': 'https://lokaantar.com',             'rss': 'https://lokaantar.com/feed',              'bias': 40, 'bias_label': 'Left-Center',  'color': '#c62828', 'lang': 'np'},
+    {'id': 'pardafas',      'name': 'Pardafas',        'url': 'https://www.pardafas.com',          'rss': 'https://www.pardafas.com/feed',           'bias': 50, 'bias_label': 'Center',       'color': '#6d4c41', 'lang': 'np'},
+    {'id': 'thahakhabar',   'name': 'Thaha Khabar',    'url': 'https://thahakhabar.com',           'rss': 'https://thahakhabar.com/feed',            'bias': 50, 'bias_label': 'Center',       'color': '#00695c', 'lang': 'np'},
+    {'id': 'ujyaalo',       'name': 'Ujyaalo Online',  'url': 'https://ujyaaloonline.com',         'rss': 'https://ujyaaloonline.com/feed',          'bias': 50, 'bias_label': 'Center',       'color': '#ef6c00', 'lang': 'np'},
+    {'id': 'bizmandu',      'name': 'Bizmandu',        'url': 'https://bizmandu.com',              'rss': 'https://bizmandu.com/feed',               'bias': 52, 'bias_label': 'Center',       'color': '#37474f', 'lang': 'np'},
+    {'id': 'arthapath',     'name': 'Arthapath',       'url': 'https://www.arthapath.com',         'rss': 'https://www.arthapath.com/feed',          'bias': 52, 'bias_label': 'Center',       'color': '#004d40', 'lang': 'np'},
+    {'id': 'techpana',      'name': 'Techpana',        'url': 'https://www.techpana.com',          'rss': 'https://www.techpana.com/feed',           'bias': 50, 'bias_label': 'Center',       'color': '#311b92', 'lang': 'np'},
+    {'id': 'swasthyakhabar','name': 'Swasthya Khabar', 'url': 'https://swasthyakhabar.com',        'rss': 'https://swasthyakhabar.com/feed',         'bias': 50, 'bias_label': 'Center',       'color': '#2e7d32', 'lang': 'np'},
+    {'id': 'ratopati_en',   'name': 'Nepal News',      'url': 'https://www.nepalnews.com',         'rss': 'https://www.nepalnews.com/feed',          'bias': 50, 'bias_label': 'Center',       'color': '#455a64', 'lang': 'en'},
+    {'id': 'kathmandupost', 'name': 'Kathmandu Post',  'url': 'https://kathmandupost.com',         'rss': 'https://kathmandupost.com/rss',           'bias': 45, 'bias_label': 'Left-Center',  'color': '#0d47a1', 'lang': 'en'},
+    {'id': 'himalayantimes','name': 'Himalayan Times', 'url': 'https://thehimalayantimes.com',     'rss': 'https://thehimalayantimes.com/feed',      'bias': 52, 'bias_label': 'Center',       'color': '#b71c1c', 'lang': 'en'},
+    {'id': 'nepalitimes',   'name': 'Nepali Times',    'url': 'https://www.nepalitimes.com',       'rss': 'https://www.nepalitimes.com/feed',        'bias': 45, 'bias_label': 'Left-Center',  'color': '#01579b', 'lang': 'en'},
+    {'id': 'ratenews',      'name': 'Rato News',       'url': 'https://www.ratenews.com',          'rss': 'https://www.ratenews.com/feed',           'bias': 50, 'bias_label': 'Center',       'color': '#bf360c', 'lang': 'np'},
+    {'id': 'imagekhabar',   'name': 'Image Khabar',    'url': 'https://www.imagekhabar.com',       'rss': 'https://www.imagekhabar.com/feed',        'bias': 50, 'bias_label': 'Center',       'color': '#4a148c', 'lang': 'np'},
+    {'id': 'reportersnepal','name': 'Reporters Nepal', 'url': 'https://reportersnepal.com',        'rss': 'https://reportersnepal.com/feed',         'bias': 50, 'bias_label': 'Center',       'color': '#3e2723', 'lang': 'np'},
+    {'id': 'drishtinews',   'name': 'Drishti News',    'url': 'https://drishtinews.com',           'rss': 'https://drishtinews.com/feed',            'bias': 50, 'bias_label': 'Center',       'color': '#1b5e20', 'lang': 'np'},
 ]
 
 HEADERS = {
@@ -132,7 +155,7 @@ INTERVAL_MIN    = 15    # scan every N minutes
 MAX_PER_SOURCE  = 12    # articles per source per run
 REQUEST_TIMEOUT = 15    # seconds per HTTP request
 AI_ENRICH_DELAY = 4     # seconds between AI calls (free-tier safe: ~15/min)
-MAX_WORKERS     = 4     # concurrent source threads
+MAX_WORKERS     = 6     # concurrent source threads
 
 # ─── Status tracking ─────────────────────────────────────────────────────────
 _status = {
@@ -257,8 +280,9 @@ def _parse_rss(source):
         url   = entry.get('link') or entry.get('id') or ''
         title = entry.get('title') or ''
         title = BeautifulSoup(title, 'lxml').get_text(strip=True)
-        dek   = entry.get('summary') or entry.get('description') or ''
-        dek   = BeautifulSoup(dek, 'lxml').get_text(strip=True)[:300]
+        raw_summary = entry.get('summary') or entry.get('description') or ''
+        dek   = BeautifulSoup(raw_summary, 'lxml').get_text(strip=True)[:300]
+        img   = _entry_image(entry, raw_summary)
 
         published_at = now()
         if entry.get('published_parsed'):
@@ -276,9 +300,48 @@ def _parse_rss(source):
                 'title':        title,
                 'url':          url,
                 'dek':          dek,
+                'img':          img,
                 'published_at': published_at,
             })
     return items
+
+
+def _entry_image(entry, raw_summary=''):
+    """Best image URL from an RSS entry: media tags, enclosures, or inline <img>."""
+    # media:content / media:thumbnail
+    for key in ('media_content', 'media_thumbnail'):
+        media = entry.get(key)
+        if media and isinstance(media, list):
+            for m in media:
+                u = (m.get('url') or '').strip()
+                if u.startswith('http'):
+                    return u
+    # enclosures / links with an image type
+    for link in (entry.get('links') or []):
+        if 'image' in (link.get('type') or '') and link.get('href', '').startswith('http'):
+            return link['href'].strip()
+    for enc in (entry.get('enclosures') or []):
+        u = (enc.get('href') or enc.get('url') or '').strip()
+        if u.startswith('http') and ('image' in (enc.get('type') or '') or
+                                     u.lower().rsplit('.', 1)[-1][:4] in ('jpg', 'jpeg', 'png', 'webp')):
+            return u
+    # first <img> inside the summary/content HTML
+    for html in (raw_summary, _content_html(entry)):
+        if html:
+            m = BeautifulSoup(html, 'lxml').find('img')
+            if m and (m.get('src') or '').startswith('http'):
+                return m['src'].strip()
+    return ''
+
+
+def _content_html(entry):
+    try:
+        c = entry.get('content')
+        if c and isinstance(c, list):
+            return c[0].get('value', '')
+    except Exception:
+        pass
+    return ''
 
 
 # ─── Article ID ───────────────────────────────────────────────────────────────
@@ -323,6 +386,8 @@ def _scan_source(source):
 
             # ── Fetch full article text via newspaper4k ──────────────────
             np_title, full_text, img_url = _fetch_article(entry['url'])
+            # Prefer the article's own top image; fall back to the RSS thumbnail.
+            img_url = img_url or entry.get('img', '')
             time.sleep(0.8)  # polite crawl delay
 
             # newspaper4k may give a better title

@@ -687,17 +687,63 @@ def ai_history():
 
 # ── Notifications ─────────────────────────────────────────────
 
+# Map an article's topic to a notification icon + tone (color).
+_NOTIF_STYLE = {
+    'business':   ('chart',    'info'),
+    'politics':   ('building', 'verify'),
+    'climate':    ('water',    'warn'),
+    'sports':     ('flame',    'verify'),
+    'tech':       ('globe',    'info'),
+    'health':     ('plant',    'verify'),
+    'agri':       ('plant',    'verify'),
+}
+
+
+def _notif_for_article(a):
+    """Build a live notification dict from a recent article row."""
+    tag = (a.get('tag') or '').lower()
+    cat = (a.get('category') or '').lower()
+    developing = bool(a.get('developing'))
+    if developing or 'flood' in cat or 'disaster' in cat or cat == 'hyperlocal':
+        icon, tone = 'alert', 'live'
+    else:
+        icon, tone = _NOTIF_STYLE.get(tag, ('globe', 'info'))
+    sub_bits = [b for b in [a.get('source'), a.get('time_label')] if b]
+    return {
+        'id':        'na_' + str(a.get('id')),
+        'article_id': a.get('id'),
+        'icon':      icon,
+        'tone':      tone,
+        'title':     a.get('title') or '',
+        'sub':       ' · '.join(sub_bits),
+        'created_at': a.get('published_at') or 0,
+    }
+
+
+def _live_notifications(conn, uid, limit=20):
+    """Real, current notifications derived from the latest scraped articles."""
+    rows = conn.execute("""
+        SELECT id, title, source, category, tag, time_label, developing, published_at
+        FROM articles
+        WHERE title IS NOT NULL AND title != ''
+        ORDER BY published_at DESC LIMIT ?
+    """, (limit,)).fetchall()
+    read_ids = {r['notif_id'] for r in conn.execute(
+        'SELECT notif_id FROM notif_read WHERE user_id = ?', (uid,))} if uid else set()
+    out = []
+    for r in rows:
+        n = _notif_for_article(row_to_dict(r))
+        n['is_read'] = 1 if n['id'] in read_ids else 0
+        out.append(n)
+    return out
+
+
 @app.get('/api/notifications')
 def list_notifications():
     conn = get_db()
     try:
-        uid  = session.get('user_id')
-        rows = conn.execute("""
-            SELECT n.*,
-              (SELECT 1 FROM notif_read WHERE notif_id = n.id AND user_id = ?) AS is_read
-            FROM notifications n ORDER BY created_at DESC
-        """, (uid,)).fetchall()
-        return jsonify([row_to_dict(r) for r in rows])
+        uid = session.get('user_id')
+        return jsonify(_live_notifications(conn, uid))
     finally:
         conn.close()
 
@@ -722,7 +768,7 @@ def mark_read(nid):
 def mark_all_read():
     conn = get_db()
     try:
-        ids = [r['id'] for r in conn.execute('SELECT id FROM notifications')]
+        ids = [n['id'] for n in _live_notifications(conn, session['user_id'])]
         for nid in ids:
             conn.execute("""
                 INSERT OR IGNORE INTO notif_read (user_id, notif_id, read_at)
@@ -766,10 +812,7 @@ def my_stats():
         saved     = conn.execute('SELECT COUNT(*) c FROM bookmarks    WHERE user_id=?', (uid,)).fetchone()['c']
         asks      = conn.execute('SELECT COUNT(*) c FROM ai_log       WHERE user_id=?', (uid,)).fetchone()['c']
         commented = conn.execute('SELECT COUNT(*) c FROM comments     WHERE user_id=?', (uid,)).fetchone()['c']
-        unread    = conn.execute("""
-            SELECT COUNT(*) FROM notifications
-            WHERE id NOT IN (SELECT notif_id FROM notif_read WHERE user_id=?)
-        """, (uid,)).fetchone()[0]
+        unread    = sum(1 for n in _live_notifications(conn, uid) if not n['is_read'])
         total_arts = conn.execute('SELECT COUNT(*) FROM articles').fetchone()[0]
         return jsonify({'read': read, 'saved': saved, 'ai_asks': asks,
                         'contributed': commented, 'unread_notifs': unread,

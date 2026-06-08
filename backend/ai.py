@@ -407,49 +407,43 @@ def summarize_article(title, text, source_name='Unknown'):
 # The AI answers as a news EDITOR, not an aggregator: it receives coverage
 # already clustered into one-story-per-topic (so duplicates are collapsed) and
 # must return a single structured story — NOT a "Source X says…" list.
-ASK_PROMPT_NP = """तपाईं Samachar AI हुनुहुन्छ — विशेषज्ञ, तटस्थ नेपाली समाचार सम्पादक।
-तल विभिन्न नेपाली स्रोतहरूले रिपोर्ट गरेका समाचार विषयअनुसार समूहबद्ध गरिएका छन् (एउटै घटना धेरै स्रोतले रिपोर्ट गरेको हुन सक्छ)।
+ASK_PROMPT_NP = """तपाईं Samachar AI हुनुहुन्छ — नेपाली समाचारका जानकार, मित्रवत् सहायक।
+तल ताजा समाचार विषयअनुसार समूहबद्ध गरिएका छन् (एउटै घटना धेरै स्रोतले रिपोर्ट गरेको हुन सक्छ)।
 
-प्रयोगकर्ताको प्रश्नसँग सबैभन्दा सम्बन्धित विषय छानेर एउटै सफा, संरचित समाचार स्टोरी तयार गर्नुहोस्।
-"अमुकका अनुसार… अर्कोका अनुसार…" भनी स्रोतको सूची नबनाउनुहोस् — सबै स्रोतका तथ्य मिलाएर एउटै कथा लेख्नुहोस्।
+प्रयोगकर्ताको प्रश्नको छोटो, कुराकानी शैलीको जवाफ नेपालीमा दिनुहोस्।
 
-केवल यो JSON फर्काउनुहोस् (अन्य केही नलेख्नुहोस्):
-{{
-  "headline":    "<आकर्षक तर तथ्यपरक शीर्षक, नेपालीमा>",
-  "summary":     "<वर्तमान कालमा ३-४ वाक्यको तटस्थ सारांश, दोहोरो नपारी, नेपालीमा>",
-  "why_matters": "<एक वाक्य — यो नागरिक, अर्थतन्त्र वा राजनीतिका लागि किन महत्त्वपूर्ण छ>",
-  "sources":     ["<प्रयोग गरिएका प्रकाशनहरूको नाम>"]
-}}
+नियमहरू:
+- बढीमा ३-४ छोटा वाक्य। सीधा र सरल। थोरै शब्दमा मुख्य कुरा भन्नुहोस्।
+- शीर्षक, बुँदा (•), इमोजी, वा "स्रोत:" जस्ता कुनै ढाँचा प्रयोग नगर्नुहोस् — सामान्य अनुच्छेदमा लेख्नुहोस्।
+- धेरै स्रोतले रिपोर्ट गरेका मुख्य/ब्रेकिङ समाचारलाई मात्र प्राथमिकता दिनुहोस्; सानातिना कुरा छोड्नुहोस्।
+- "अमुकका अनुसार…" नभनी सबै स्रोतका तथ्य मिलाएर एकैसाथ बताउनुहोस्।
+- तल दिइएका तथ्यमा मात्र आधारित हुनुहोस्, केही नबनाउनुहोस्। सम्बन्धित समाचार नभए इमानदारीपूर्वक भन्नुहोस्।
 
-नियम: तल दिइएका तथ्यमा मात्र आधारित हुनुहोस्, कुनै तथ्य वा तथ्याङ्क नबनाउनुहोस्। पक्ष नलिनुहोस्।
-प्रश्नसँग सम्बन्धित जानकारी नभए summary मा स्पष्ट रूपमा भन्नुहोस्।
-
-समूहबद्ध समाचार:
+ताजा समाचार:
 {context}
 
-प्रश्न: {question}"""
+प्रश्न: {question}
 
-ASK_PROMPT_EN = """You are Samachar AI — an expert, impartial Nepali news editor.
-Below is coverage from multiple Nepali outlets, already grouped by topic (the same event may be reported by several outlets).
+जवाफ (नेपालीमा, छोटो र कुराकानी शैलीमा):"""
 
-Pick the topic most relevant to the user's question and produce ONE clean, structured news story.
-Do NOT write a "Source X says… Source Y says…" list — merge the facts from all outlets into a single story.
+ASK_PROMPT_EN = """You are Samachar AI — a knowledgeable, friendly assistant for Nepal news.
+Below is recent coverage grouped by topic (the same event may be reported by several outlets).
 
-Return ONLY this JSON (nothing else):
-{{
-  "headline":    "<engaging but factual headline>",
-  "summary":     "<a neutral 3-4 sentence summary in present tense, no repetition>",
-  "why_matters": "<one sentence — why this matters for people, the economy or politics>",
-  "sources":     ["<names of the publications used>"]
-}}
+Answer the user's question in a short, conversational way.
 
-Rules: rely ONLY on the facts below — never fabricate facts or statistics. Take no side.
-If nothing relevant is covered, say so plainly in the summary.
+Rules:
+- At most 3-4 short sentences. Direct and simple — the key point in few words.
+- Do NOT use headings, bullets (•), emojis, or a "Sources:" block — just a plain paragraph.
+- Prioritise only the main/breaking stories covered by many outlets; skip minor items.
+- Don't write "Source X says…"; blend the facts into one natural answer.
+- Rely ONLY on the facts below — never fabricate. If nothing relevant is covered, say so honestly.
 
-Grouped coverage:
+Recent coverage:
 {context}
 
-Question: {question}"""
+Question: {question}
+
+Answer (short and conversational):"""
 
 
 # ── "Why it matters" — deterministic impact reasoning ────────────
@@ -493,28 +487,23 @@ def _why_matters(text, lang='np'):
             else 'This matters because it directly affects the people and sector involved.')
 
 
-def _format_story(story, others, lang='np'):
-    """Render a story dict into a clean, structured display string."""
-    head = (story.get('headline') or '').strip()
-    summ = (story.get('summary') or '').strip()
-    why = (story.get('why_matters') or '').strip()
-    out = []
-    if head:
-        out.append(head)
-    if summ:
-        if out:
-            out.append('')
-        out.append(summ)
-    if why:
-        out.append('')
-        out.append('📌 किन महत्त्वपूर्ण' if lang == 'np' else '📌 Why it matters')
-        out.append(why)
-    if others:
-        out.append('')
-        out.append('🗞️ अन्य मुख्य समाचार' if lang == 'np' else '🗞️ Other top stories')
-        for h in others[:3]:
-            out.append('• ' + h)
-    return '\n'.join(out).strip()
+def _clean_chat_answer(raw):
+    """Tidy an LLM chat reply: strip JSON/markdown/heading/bullet scaffolding so
+    it reads as a plain conversational paragraph."""
+    if not raw:
+        return ''
+    t = str(raw).strip()
+    # If the model still emitted JSON, pull the summary field out of it.
+    if t.startswith('{') or t.startswith('```'):
+        data = _extract_json(t)
+        if data:
+            t = str(data.get('summary') or data.get('answer') or '').strip()
+    # Drop our old structured scaffolding if the model echoed it.
+    t = re.sub(r'(?m)^\s*(📌|🗞️|🔥|📰|🧾|•|-|\*)\s*', '', t)
+    t = re.sub(r'(?m)^\s*(किन महत्त्वपूर्ण|Why it matters|अन्य मुख्य समाचार|'
+               r'Other top stories|Sources?|स्रोत(हरू)?)\s*:?.*$', '', t)
+    t = re.sub(r'\n{3,}', '\n\n', t).strip()
+    return t
 
 
 def _clusters_to_context(clusters, lang='np'):
@@ -530,34 +519,50 @@ def _clusters_to_context(clusters, lang='np'):
     return '\n'.join(lines)
 
 
-def _structured_from_clusters(clusters, lang='np'):
+def _conversational_from_clusters(clusters, question, lang='np'):
     """
-    Build a structured story (headline + merged summary + why-it-matters +
-    sources) from the dominant topic cluster, with other clusters listed as
-    brief one-liners. Used when no LLM is available — deterministic, grounded.
-    Returns (story, others, sources) or None.
+    Compose a short, conversational answer from the topic clusters WITHOUT an
+    LLM. Leads with the most-relevant story, then optionally mentions one more
+    story IF it is genuinely "top" news (covered by several outlets). No
+    headings, bullets or emojis — just a plain, concise paragraph.
     """
     if not clusters:
-        return None
+        return ''
     top = clusters[0]
-    if not top.get('headline') and not top.get('summary'):
-        return None
-    why = _why_matters(f"{top.get('headline','')} {top.get('summary','')}", lang)
-    story = {
-        'headline':    top.get('headline', ''),
-        # NEVER fall back to the headline as the summary — that double-renders
-        # the headline ("echo"). An empty summary is fine: _format_story then
-        # shows headline + why-it-matters cleanly.
-        'summary':     top.get('summary', ''),
-        'why_matters': why,
-    }
-    others = [c['headline'] for c in clusters[1:4] if c.get('headline')]
-    srcs = list(top.get('sources', []))
-    for c in clusters[1:4]:
-        for s in c.get('sources', []):
-            if s not in srcs:
-                srcs.append(s)
-    return story, others, srcs[:6]
+    head = (top.get('headline') or '').strip()
+    summ = (top.get('summary') or '').strip()
+    if not head and not summ:
+        return ''
+
+    def _sentence(text):
+        text = (text or '').strip().rstrip('।.!?,；; ')
+        if not text:
+            return ''
+        return text + ('।' if _has_devanagari(text) else '.')
+
+    parts = []
+    if summ:
+        # Summary already carries the substance; lead with the headline as a
+        # framing clause only if it adds something new.
+        parts.append(_sentence(summ))
+    elif head:
+        parts.append(_sentence(head))
+
+    # One more story only if multiple outlets covered it (i.e. genuinely top).
+    extra = next((c for c in clusters[1:5]
+                  if c.get('size', 0) >= 2 and c.get('headline')), None)
+    if extra:
+        h = extra['headline'].strip().rstrip('।.!?,; ')
+        if lang == 'np':
+            parts.append(f'साथै, {h} पनि आजको चर्चामा छ।')
+        else:
+            parts.append(f'Also making headlines: {h}.')
+
+    answer = ' '.join(p for p in parts if p).strip()
+    if lang == 'np' and not _has_devanagari(answer):
+        # Source coverage was English-only; keep it but it's fine for en too.
+        pass
+    return answer
 
 
 def answer_question(question, lang='np', context_articles=None, use_web=True):
@@ -609,43 +614,32 @@ def answer_question(question, lang='np', context_articles=None, use_web=True):
                             'source': c['lead'].get('source', ''), 'url': url})
     related = related[:6]
 
-    # 4) Ask the model for a structured story from the clustered context.
+    # Default sources = the outlets behind the most-relevant clustered story.
+    srcs = (clusters[0]['sources'][:5] if clusters else []) or ['samachar.ai']
+
+    # 4) Ask the model for a short, conversational answer grounded in the clusters.
     context = _clusters_to_context(clusters, lang)
     prompt_template = ASK_PROMPT_NP if lang == 'np' else ASK_PROMPT_EN
     prompt = prompt_template.format(context=context, question=question)
     if lang == 'np':
-        raw = llm.gemini_chat(prompt, max_tokens=900)            # Nepali → Gemini only
+        raw = llm.gemini_chat(prompt, max_tokens=400)            # Nepali → Gemini only
     else:
-        raw = llm.generate(prompt, max_tokens=900, nepali=False, allow_groq=True)
+        raw = llm.generate(prompt, max_tokens=400, nepali=False, allow_groq=True)
 
-    data = _extract_json(raw) if raw else None
-    # Reject broken Nepali output (e.g. Groq Devanagari) so we fall to extractive.
-    if data and lang == 'np' and not _has_devanagari(str(data.get('summary', ''))):
-        data = None
+    answer = _clean_chat_answer(raw)
+    # Reject broken Nepali output (e.g. Groq Devanagari) so we fall to deterministic.
+    if answer and lang == 'np' and not _has_devanagari(answer):
+        answer = ''
 
-    if data and str(data.get('summary', '')).strip():
-        others = [c['headline'] for c in clusters[1:4] if c.get('headline')]
-        srcs = [str(s).strip() for s in (data.get('sources') or []) if str(s).strip()][:6]
-        if not srcs and clusters:
-            srcs = clusters[0]['sources'][:5]
-        story = {
-            'headline':    str(data.get('headline', '')).strip()
-                           or (clusters[0]['headline'] if clusters else ''),
-            'summary':     str(data.get('summary', '')).strip(),
-            'why_matters': str(data.get('why_matters', '')).strip()
-                           or _why_matters(str(data.get('summary', '')), lang),
-        }
-        result = {'answer': _format_story(story, others, lang),
-                  'sources': srcs or ['samachar.ai'], 'related': related}
+    if answer:
+        result = {'answer': answer, 'sources': srcs, 'related': related}
         _cache_set(cache_key, result, ttl_seconds=21600)   # 6h
         return result
 
-    # 5) No LLM (quota) → deterministic structured story from the clusters.
-    structured = _structured_from_clusters(clusters, lang)
-    if structured:
-        story, others, srcs = structured
-        result = {'answer': _format_story(story, others, lang),
-                  'sources': srcs or ['samachar.ai'], 'related': related}
+    # 5) No LLM (quota) → concise conversational answer composed from the clusters.
+    convo = _conversational_from_clusters(clusters, question, lang)
+    if convo:
+        result = {'answer': convo, 'sources': srcs, 'related': related}
         _cache_set(cache_key, result, ttl_seconds=3600)    # 1h
         return result
 
