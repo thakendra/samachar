@@ -18,11 +18,28 @@ const App = () => {
       .catch(() => setUser(null));
   }, []);
 
-  // ── real location: browser geolocation → reverse geocode → ward label ──
+  // ── real location ──
+  // Prefer precise browser GPS (HTTPS only); fall back to server-side IP geo
+  // so the address is still real on plain-HTTP origins.
+  const applyLoc = (label) => {
+    if (!label) return;
+    localStorage.setItem('samachar_loc', label);
+    setUser(u => (u ? { ...u, ward: label } : u));
+  };
+
+  const ipFallback = async () => {
+    try {
+      const g = await API.geo();
+      if (g && g.label) applyLoc(g.label);
+    } catch (e) { /* keep existing ward */ }
+  };
+
   const detectLocation = () => {
     const cached = localStorage.getItem('samachar_loc');
     if (cached) setUser(u => (u ? { ...u, ward: cached } : u));
-    if (!navigator.geolocation) return;
+
+    // GPS needs a secure context; otherwise go straight to IP-based geo.
+    if (!navigator.geolocation || !window.isSecureContext) { ipFallback(); return; }
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
         const { latitude, longitude } = pos.coords;
@@ -37,12 +54,9 @@ const App = () => {
         const region = a.city || a.county || a.state_district || a.state || '';
         const label = [...new Set([local, region].filter(Boolean))].join(', ') ||
                       (d.display_name ? d.display_name.split(',').slice(0, 2).join(',').trim() : '');
-        if (label) {
-          localStorage.setItem('samachar_loc', label);
-          setUser(u => (u ? { ...u, ward: label } : u));
-        }
-      } catch (e) { /* keep existing ward */ }
-    }, () => {}, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
+        applyLoc(label);
+      } catch (e) { ipFallback(); }
+    }, () => { ipFallback(); }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
   };
 
   // ── apply theme + accent from user prefs ──

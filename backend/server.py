@@ -14,6 +14,8 @@ import time
 import queue
 import threading
 
+import requests
+
 from flask import Flask, jsonify, request, session, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
 
@@ -878,6 +880,41 @@ def list_sources():
         'color':      s['color'],
         'lang':       s.get('lang', 'np'),
     } for s in scraper_module.SOURCES])
+
+
+# ── Geolocation (IP-based fallback for non-HTTPS origins) ─────────
+# Browser GPS geolocation only works on secure (HTTPS) origins. Over plain
+# HTTP we approximate the user's city from their IP so the location is still
+# real (carrier/city level) instead of a hardcoded ward.
+
+def _client_ip():
+    xff = request.headers.get('X-Forwarded-For', '')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.headers.get('X-Real-IP') or request.remote_addr or ''
+
+
+@app.get('/api/geo')
+def geo_lookup():
+    ip = _client_ip()
+    # Skip private/loopback — let ip-api auto-detect the requester instead.
+    is_private = (not ip or ip.startswith(('10.', '127.', '192.168.', '172.16.',
+                  '172.17.', '172.18.', '172.19.', '172.2', '172.3', '::1')))
+    try:
+        url = 'http://ip-api.com/json/' + ('' if is_private else ip) + \
+              '?fields=status,city,regionName,country'
+        r = requests.get(url, timeout=5)
+        d = r.json()
+        if d.get('status') == 'success':
+            city   = d.get('city') or ''
+            region = d.get('regionName') or ''
+            label  = ', '.join([p for p in dict.fromkeys([city, region]) if p])
+            return jsonify({'city': city, 'region': region,
+                            'label': label or d.get('country', ''),
+                            'country': d.get('country', '')})
+    except Exception as e:
+        print(f'[geo] lookup failed: {e}')
+    return jsonify({'city': '', 'region': '', 'label': '', 'country': ''})
 
 
 # ── Frontend ──────────────────────────────────────────────────

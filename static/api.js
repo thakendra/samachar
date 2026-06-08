@@ -65,6 +65,9 @@ const API = (() => {
     askAi:     (q, lang)  => request('/ai/ask', { method: 'POST', body: { question: q, lang } }),
     aiHistory: ()         => request('/ai/history'),
 
+    // geolocation (IP-based fallback for non-HTTPS origins)
+    geo:       ()         => request('/geo'),
+
     // notifications
     notifications: ()     => request('/notifications'),
     markRead:  (nid)      => request('/notifications/' + nid + '/read', { method: 'POST' }),
